@@ -1,0 +1,23 @@
+{
+  "name": "pokedex-online-v3",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "nuxt dev",
+    "build": "nuxt build",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "setup": "tsx scripts/setup.ts",
+    "build:data": "tsx scripts/build-data.ts",
+    "prepare": "nuxt prepare"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "nuxt": "^3.15.4",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18.20.0"
+  }
+}

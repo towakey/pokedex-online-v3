@@ -1,0 +1,15 @@
+export default defineAppConfig({
+  site: {
+    name: 'Pokédex-Online',
+    description: 'ポケモン図鑑',
+    subtitle: 'Static Nuxt Edition',
+    defaultArea: 'global'
+  },
+  pokedex: {
+    versionIconBasePath: 'images/pokedex-version'
+  },
+  navigation: {
+    home: '/',
+    pokedex: '/pokedex'
+  }
+})
