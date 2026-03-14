@@ -10,7 +10,8 @@ interface JsonRecord {
 type StatKey = 'hp' | 'attack' | 'defense' | 'special_attack' | 'special_defense' | 'speed'
 
 interface PokemonRecord {
-  id: number
+  id: string
+  dex: number
   name: string
   names?: Record<string, string>
   types: string[]
@@ -28,9 +29,11 @@ interface PokemonRecord {
 }
 
 interface IndexRecord {
-  id: number
+  id: string
+  dex: number
   name: string
   types: string[]
+  classification?: string
 }
 
 interface SearchIndexRecord extends IndexRecord {
@@ -39,7 +42,8 @@ interface SearchIndexRecord extends IndexRecord {
 
 interface RegionEntry {
   dex: number
-  pokemon_id: number
+  pokemon_id: string
+  national_dex: number
 }
 
 interface RegionMeta {
@@ -167,46 +171,20 @@ const extractDescriptionText = (value: JsonValue | undefined): string | undefine
 
 const collectFormLabels = (entryMap: Record<string, JsonRecord>): string[] => {
   return uniqueStrings(
-    Object.values(entryMap).flatMap((entryValue) => ([
-      pickLocalizedValue(entryValue.forms),
-      toStringValue(entryValue.form),
-      toStringValue(entryValue.region),
-      toStringValue(entryValue.mega_evolution),
-      toStringValue(entryValue.gigantamax)
-    ]))
+    Object.values(entryMap).flatMap((entryValue) => collectStrings(entryValue.forms))
   )
 }
 
-const rankSourceEntry = (entryValue: JsonRecord): number => {
-  let score = 0
-
-  if (toStringValue(entryValue.form)) {
-    score += 10
-  }
-
-  if (toStringValue(entryValue.region)) {
-    score += 8
-  }
-
-  if (toStringValue(entryValue.mega_evolution)) {
-    score += 6
-  }
-
-  if (toStringValue(entryValue.gigantamax)) {
-    score += 4
-  }
-
-  return score
-}
-
 const selectPrimaryEntry = (entryMap: Record<string, JsonRecord>): JsonRecord | undefined => {
-  return Object.values(entryMap)
-    .sort((left, right) => rankSourceEntry(left) - rankSourceEntry(right))[0]
+  const primaryKey = Object.keys(entryMap)
+    .sort((left, right) => left.localeCompare(right))[0]
+
+  return primaryKey ? entryMap[primaryKey] : undefined
 }
 
 const selectPrimaryEntryKey = (entryMap: Record<string, JsonRecord>): string | undefined => {
   return Object.entries(entryMap)
-    .sort((left, right) => rankSourceEntry(left[1]) - rankSourceEntry(right[1]))[0]?.[0]
+    .sort((left, right) => left[0].localeCompare(right[0]))[0]?.[0]
 }
 
 const normalizeVersionLabel = (value: string): string => {
@@ -293,14 +271,15 @@ const createGlobalDescriptionEntries = (
     }))
 }
 
-const createPokemonBaseRecord = (id: number, entryMap: Record<string, JsonRecord>): PokemonRecord => {
+const createPokemonBaseRecord = (id: string, dex: number, entryMap: Record<string, JsonRecord>): PokemonRecord => {
   const primaryEntry = selectPrimaryEntry(entryMap)
   const names = normalizeLocalizedMap(primaryEntry?.name)
   const forms = collectFormLabels(entryMap)
 
   return {
     id,
-    name: pickFirstString(names?.jpn, names?.ja, names?.eng, names?.en) ?? `Pokemon ${id}`,
+    dex,
+    name: pickFirstString(names?.jpn, names?.ja, names?.eng, names?.en) ?? `Pokemon ${dex}`,
     names,
     types: [],
     height: pickFirstNumber(primaryEntry?.height),
@@ -310,14 +289,15 @@ const createPokemonBaseRecord = (id: number, entryMap: Record<string, JsonRecord
   }
 }
 
-const createPokemonRegionalRecord = (id: number, entryMap: Record<string, JsonRecord>): PokemonRecord => {
+const createPokemonRegionalRecord = (id: string, dex: number, entryMap: Record<string, JsonRecord>): PokemonRecord => {
   const primaryEntry = selectPrimaryEntry(entryMap)
   const names = normalizeLocalizedMap(primaryEntry?.name)
   const forms = collectFormLabels(entryMap)
 
   return {
     id,
-    name: pickFirstString(names?.jpn, names?.ja, names?.eng, names?.en) ?? `Pokemon ${id}`,
+    dex,
+    name: pickFirstString(names?.jpn, names?.ja, names?.eng, names?.en) ?? `Pokemon ${dex}`,
     names,
     types: uniqueStrings([
       toStringValue(primaryEntry?.type1),
@@ -591,7 +571,7 @@ const normalizeForms = (record: JsonRecord): string[] | undefined => {
     }
   }
 
-  collected.push(pickFirstString(record.form, record.form_name))
+  collected.push(pickFirstString(record.form_name))
 
   const normalized = uniqueStrings(collected)
   return normalized.length > 0 ? normalized : undefined
@@ -705,6 +685,7 @@ const mergePokemonRecord = (current: PokemonRecord | undefined, incoming: Pokemo
 
   return {
     id: current.id,
+    dex: current.dex,
     name: current.name.startsWith('Pokemon ') && !incoming.name.startsWith('Pokemon ') ? incoming.name : current.name,
     names: current.names || incoming.names ? { ...(current.names ?? {}), ...(incoming.names ?? {}) } : undefined,
     types: uniqueStrings([...current.types, ...incoming.types]),
@@ -762,28 +743,41 @@ if (Object.keys(globalPokedex).length === 0) {
   throw new Error('The global pokedex dataset is empty.')
 }
 
-const pokemonMap = new Map<number, PokemonRecord>()
+const pokemonMap = new Map<string, PokemonRecord>()
 const regionMap = new Map<string, RegionEntry[]>()
+const primaryGlobalIdByDex = new Map<number, string>()
+const globalEntries: RegionEntry[] = []
 
 for (const [globalNo, formsValue] of Object.entries(globalPokedex)) {
-  const pokemonId = parsePokemonId(globalNo)
+  const dexNumber = parsePokemonId(globalNo)
   const formMap = toRecordMap(formsValue)
 
-  if (!pokemonId || Object.keys(formMap).length === 0) {
+  if (!dexNumber || Object.keys(formMap).length === 0) {
     continue
   }
 
   const primaryFormId = selectPrimaryEntryKey(formMap)
-  const globalDescriptions = primaryFormId
-    ? createGlobalDescriptionEntries(globalDescriptionMap[primaryFormId], versionDisplayMap)
-    : []
-  const baseRecord = createPokemonBaseRecord(pokemonId, formMap)
 
-  pokemonMap.set(pokemonId, {
-    ...baseRecord,
-    description: baseRecord.description ?? globalDescriptions[0]?.description,
-    globalDescriptions: globalDescriptions.length > 0 ? globalDescriptions : undefined
-  })
+  if (primaryFormId) {
+    primaryGlobalIdByDex.set(dexNumber, primaryFormId)
+  }
+
+  for (const [pokemonId, pokemonEntry] of Object.entries(formMap)) {
+    const globalDescriptions = createGlobalDescriptionEntries(globalDescriptionMap[pokemonId], versionDisplayMap)
+    const baseRecord = createPokemonBaseRecord(pokemonId, dexNumber, { [pokemonId]: pokemonEntry })
+
+    pokemonMap.set(pokemonId, {
+      ...baseRecord,
+      description: baseRecord.description ?? globalDescriptions[0]?.description,
+      globalDescriptions: globalDescriptions.length > 0 ? globalDescriptions : undefined
+    })
+
+    globalEntries.push({
+      dex: dexNumber,
+      pokemon_id: pokemonId,
+      national_dex: dexNumber
+    })
+  }
 }
 
 for (const [slug, regionConfig] of configuredRegionEntries) {
@@ -803,53 +797,58 @@ for (const [slug, regionConfig] of configuredRegionEntries) {
 
   for (const [localDex, formsValue] of Object.entries(regionalEntriesMap)) {
     const formMap = toRecordMap(formsValue)
-    const firstFormId = Object.keys(formMap)[0]
-    const pokemonId = firstFormId ? parsePokemonId(firstFormId) : undefined
+    const localDexNumber = parsePokemonId(localDex)
 
-    if (!pokemonId || Object.keys(formMap).length === 0) {
+    if (!localDexNumber || Object.keys(formMap).length === 0) {
       continue
     }
 
-    const regionalPokemon = createPokemonRegionalRecord(pokemonId, formMap)
-    const current = pokemonMap.get(pokemonId)
-    pokemonMap.set(pokemonId, mergePokemonRecord(current, regionalPokemon))
+    for (const [pokemonId, pokemonEntry] of Object.entries(formMap)) {
+      const nationalDex = parsePokemonId(pokemonId)
 
-    const dexNumber = parsePokemonId(localDex)
+      if (!nationalDex) {
+        continue
+      }
 
-    if (dexNumber) {
+      const regionalPokemon = createPokemonRegionalRecord(pokemonId, nationalDex, { [pokemonId]: pokemonEntry })
+      const current = pokemonMap.get(pokemonId)
+      pokemonMap.set(pokemonId, mergePokemonRecord(current, regionalPokemon))
+
       regionEntries.push({
-        dex: dexNumber,
-        pokemon_id: pokemonId
+        dex: localDexNumber,
+        pokemon_id: pokemonId,
+        national_dex: nationalDex
       })
     }
   }
 
   const deduped = [...new Map(
     regionEntries
-      .sort((left, right) => left.dex - right.dex || left.pokemon_id - right.pokemon_id)
-      .map((entry) => [entry.dex, entry])
+      .sort((left, right) => left.dex - right.dex || left.national_dex - right.national_dex || left.pokemon_id.localeCompare(right.pokemon_id))
+      .map((entry) => [`${entry.dex}:${entry.pokemon_id}`, entry] as const)
   ).values()]
 
   regionMap.set(slug, deduped)
 }
 
-const globalEntries = [...pokemonMap.keys()]
-  .sort((left, right) => left - right)
-  .map((id) => ({ dex: id, pokemon_id: id }))
+regionMap.set('global', globalEntries
+  .sort((left, right) => left.dex - right.dex || left.pokemon_id.localeCompare(right.pokemon_id)))
 
-regionMap.set('global', globalEntries)
-
-const pokemonRecords = [...pokemonMap.values()].sort((left, right) => left.id - right.id)
+const pokemonRecords = [...pokemonMap.values()].sort((left, right) => left.dex - right.dex || left.id.localeCompare(right.id))
 const indexRecords: IndexRecord[] = pokemonRecords.map((pokemon) => ({
   id: pokemon.id,
+  dex: pokemon.dex,
   name: pokemon.name,
-  types: pokemon.types
+  types: pokemon.types,
+  classification: pokemon.classification
 }))
 
 const searchIndexRecords: SearchIndexRecord[] = pokemonRecords.map((pokemon) => ({
   id: pokemon.id,
+  dex: pokemon.dex,
   name: pokemon.name,
   types: pokemon.types,
+  classification: pokemon.classification,
   names: pokemon.names
 }))
 
@@ -868,6 +867,14 @@ const regionMeta: RegionMeta[] = [
 
 for (const pokemon of pokemonRecords) {
   writeJson(resolve(pokemonOutputDir, `${pokemon.id}.json`), pokemon as unknown as JsonValue)
+}
+
+for (const [dex, pokemonId] of primaryGlobalIdByDex.entries()) {
+  const pokemon = pokemonMap.get(pokemonId)
+
+  if (pokemon) {
+    writeJson(resolve(pokemonOutputDir, `${String(dex).padStart(4, '0')}.json`), pokemon as unknown as JsonValue)
+  }
 }
 
 for (const [slug, entries] of regionMap.entries()) {

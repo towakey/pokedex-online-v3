@@ -1,5 +1,6 @@
 export interface PokemonIndexItem {
-  id: number
+  id: string
+  dex: number
   name: string
   types: string[]
   classification?: string
@@ -24,7 +25,8 @@ export interface PokemonDetail extends SearchIndexItem {
 
 export interface RegionEntry {
   dex: number
-  pokemon_id: number
+  pokemon_id: string
+  national_dex: number
 }
 
 export interface RegionMeta {
@@ -41,12 +43,17 @@ const normalizeBaseURL = (value?: string): string => {
   return baseURL.endsWith('/') ? baseURL : `${baseURL}/`
 }
 
-const toPokemonId = (value: number | string): number => {
+const parsePokemonDexNumber = (value: number | string): number => {
   if (typeof value === 'number') {
     return value
   }
 
-  return Number.parseInt(String(value), 10)
+  const match = String(value).trim().match(/^0*(\d+)/)
+  if (!match) {
+    return Number.NaN
+  }
+
+  return Number.parseInt(match[1], 10)
 }
 
 const normalizeRegionSlug = (value?: string): string => {
@@ -60,11 +67,19 @@ const normalizeRegionSlug = (value?: string): string => {
 }
 
 const formatPokemonRouteId = (value: number | string): string => {
-  const pokemonId = toPokemonId(value)
-  return Number.isFinite(pokemonId) && pokemonId > 0 ? String(pokemonId).padStart(4, '0') : String(value)
+  const normalizedValue = String(value).trim()
+  if (normalizedValue.includes('_')) {
+    return normalizedValue
+  }
+
+  const pokemonId = parsePokemonDexNumber(normalizedValue)
+  return Number.isFinite(pokemonId) && pokemonId > 0 ? String(pokemonId).padStart(4, '0') : normalizedValue
 }
 
-const formatPokemonImageFileName = (value: number | string): string => `${formatPokemonRouteId(value)}_00000000_0_000_0.png`
+const formatPokemonImageFileName = (value: number | string): string => {
+  const routeId = formatPokemonRouteId(value)
+  return routeId.includes('_') ? `${routeId}.png` : `${routeId}_00000000_0_000_0.png`
+}
 
 const loadGeneratedData = async <T>(relativePath: string): Promise<T> => {
   if (import.meta.server) {
@@ -108,7 +123,7 @@ export const usePokedex = () => {
 
   const loadIndex = () => loadGeneratedData<PokemonIndexItem[]>('index.json')
   const loadSearchIndex = () => loadGeneratedData<SearchIndexItem[]>('search-index.json')
-  const loadPokemon = (id: number | string) => loadGeneratedData<PokemonDetail>(`pokemon/${toPokemonId(id)}.json`)
+  const loadPokemon = (id: number | string) => loadGeneratedData<PokemonDetail>(`pokemon/${formatPokemonRouteId(id)}.json`)
   const loadRegion = (region: string) => {
     const normalizedRegion = normalizeRegionSlug(region)
     const candidates = normalizedRegion === GLOBAL_REGION_SLUG
@@ -136,10 +151,21 @@ export const usePokedex = () => {
     return [...regionMap.values()]
   }
 
-  const formatPokemonNumber = (id: number) => `#${String(id).padStart(4, '0')}`
+  const formatPokemonNumber = (id: number | string) => {
+    const dexNumber = parsePokemonDexNumber(id)
+    return Number.isFinite(dexNumber) && dexNumber > 0 ? `#${String(dexNumber).padStart(4, '0')}` : `#${String(id)}`
+  }
   const formatMeters = (value?: number) => value !== undefined ? `${value} m` : '不明'
   const formatKilograms = (value?: number) => value !== undefined ? `${value} kg` : '不明'
-  const buildPokemonDetailPath = (area: string, id: number | string) => getAppPath(`pokedex/${normalizeRegionSlug(area)}/${formatPokemonRouteId(id)}`)
+  const buildPokemonDetailPath = (area: string, id: number | string, formId?: number | string) => {
+    const routeId = formatPokemonRouteId(id)
+    const normalizedFormId = formId !== undefined ? formatPokemonRouteId(formId) : ''
+    const hash = normalizedFormId && normalizedFormId.includes('_') && normalizedFormId !== routeId
+      ? `#form=${encodeURIComponent(normalizedFormId)}`
+      : ''
+
+    return getAppPath(`pokedex/${normalizeRegionSlug(area)}/${routeId}${hash}`)
+  }
   const getPokemonImagePath = (id: number | string) => getAppPath(`images/pokemon/${formatPokemonImageFileName(id)}`)
 
   return {
@@ -149,6 +175,7 @@ export const usePokedex = () => {
     loadRegion,
     loadRegions,
     normalizeRegionSlug,
+    parsePokemonDexNumber,
     formatPokemonNumber,
     formatPokemonRouteId,
     formatPokemonImageFileName,

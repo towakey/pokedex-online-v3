@@ -7,11 +7,19 @@ const pokemonDir = resolve(generatedDataDir, 'pokemon')
 const regionDir = resolve(generatedDataDir, 'region')
 
 interface RegionRouteEntry {
-  pokemon_id: number
+  dex: number
+  pokemon_id: string
 }
 
 const normalizeRegionSlug = (slug: string) => slug === 'national' ? 'global' : slug
-const formatPokemonRouteId = (id: number | string) => String(id).padStart(4, '0')
+const formatPokemonRouteId = (id: number | string) => {
+  const normalized = String(id).trim()
+  if (normalized.includes('_')) {
+    return normalized
+  }
+
+  return normalized.padStart(4, '0')
+}
 
 const createPrerenderRoutes = () => {
   const routes = new Set<string>(['/', '/pokedex'])
@@ -44,13 +52,15 @@ const createPrerenderRoutes = () => {
         try {
           const entries = JSON.parse(readFileSync(resolve(regionDir, file), 'utf-8')) as RegionRouteEntry[]
           for (const entry of entries) {
-            if (Number.isFinite(entry.pokemon_id) && entry.pokemon_id > 0) {
-              const routeId = formatPokemonRouteId(entry.pokemon_id)
-              routes.add(`/pokedex/${normalizedSlug}/${entry.pokemon_id}`)
-              routes.add(`/pokedex/${normalizedSlug}/${routeId}`)
+            if (entry.pokemon_id) {
+              const dexRouteId = formatPokemonRouteId(entry.dex)
+              const legacyRouteId = formatPokemonRouteId(entry.pokemon_id)
+              routes.add(`/pokedex/${normalizedSlug}/${dexRouteId}`)
+              routes.add(`/pokedex/${normalizedSlug}/${legacyRouteId}`)
 
               if (slug !== normalizedSlug) {
-                routes.add(`/pokedex/${slug}/${entry.pokemon_id}`)
+                routes.add(`/pokedex/${slug}/${dexRouteId}`)
+                routes.add(`/pokedex/${slug}/${legacyRouteId}`)
               }
             }
           }

@@ -2,15 +2,33 @@
 import { computed, ref, watch } from 'vue'
 import { useSiteAppConfig } from '~/composables/useSiteAppConfig'
 import { useTypeColor } from '~/composables/useTypeColor'
-import type { PokemonDetail, RegionMeta } from '~/composables/usePokedex'
+import type { PokemonDetail, PokemonIndexItem, RegionEntry, RegionMeta } from '~/composables/usePokedex'
 
 type StatKey = 'hp' | 'attack' | 'defense' | 'special_attack' | 'special_defense' | 'speed'
 
+interface PokemonPageLink {
+  dex: number
+  name: string
+  to: string
+}
+
+interface PokemonPageEntry {
+  id: string
+  localDex: number
+  nationalDex: number
+  label: string
+  to: string
+  pokemon: PokemonDetail
+}
+
 interface PokemonPageData {
   ready: boolean
-  pokemon: PokemonDetail | null
+  entries: PokemonPageEntry[]
   areaSlug: string
   areaLabel: string
+  dex: number | null
+  previousPokemon: PokemonPageLink | null
+  nextPokemon: PokemonPageLink | null
   message: string
 }
 
@@ -49,9 +67,12 @@ const {
   formatPokemonNumber,
   formatPokemonRouteId,
   getPokemonImagePath,
+  loadIndex,
   loadPokemon,
+  loadRegion,
   loadRegions,
-  normalizeRegionSlug
+  normalizeRegionSlug,
+  parsePokemonDexNumber
 } = usePokedex()
 
 const normalizeBaseURL = (value?: string): string => {
@@ -90,26 +111,75 @@ const getPokedexVersionIconPath = (version: string): string => {
   return buildAssetPath(`${appConfig.pokedex.versionIconBasePath}/${normalizedVersion}.png`)
 }
 
+const normalizeQueryValue = (value: unknown): string => {
+  if (Array.isArray(value)) {
+    return String(value[0] ?? '').trim()
+  }
+
+  return String(value ?? '').trim()
+}
+
 const createDefaultPokemonPageData = (areaSlug: string): PokemonPageData => ({
   ready: false,
-  pokemon: null,
+  entries: [],
   areaSlug,
   areaLabel: areaSlug || appConfig.site.defaultArea,
+  dex: null,
+  previousPokemon: null,
+  nextPokemon: null,
   message: ''
 })
+
+const createFormLabel = (pokemon: PokemonDetail, index: number, entries: Array<{ pokemon: PokemonDetail }>): string => {
+  const formsLabel = pokemon.forms?.filter(Boolean).join(' / ')
+  if (formsLabel) {
+    return formsLabel
+  }
+
+  const typeLabel = pokemon.types.filter(Boolean).join(' / ')
+  if (typeLabel) {
+    const hasUniqueTypeLabel = entries.filter((entry) => entry.pokemon.types.filter(Boolean).join(' / ') === typeLabel).length === 1
+    if (hasUniqueTypeLabel) {
+      return typeLabel
+    }
+  }
+
+  return entries.length > 1 ? `フォーム ${index + 1}` : '通常'
+}
 
 const route = useRoute()
 const rawAreaSlug = computed(() => String(route.params.area ?? appConfig.site.defaultArea).toLowerCase())
 const rawPokemonId = computed(() => String(route.params.id ?? '').trim())
+const rawFormId = computed(() => normalizeQueryValue(route.query.form))
 const areaSlug = computed(() => normalizeRegionSlug(rawAreaSlug.value))
-const pokemonId = computed(() => /^[0-9]+$/.test(rawPokemonId.value) ? Number.parseInt(rawPokemonId.value, 10) : Number.NaN)
-const canonicalRouteId = computed(() => Number.isFinite(pokemonId.value) && pokemonId.value > 0 ? formatPokemonRouteId(pokemonId.value) : rawPokemonId.value)
 
-if (Number.isFinite(pokemonId.value) && pokemonId.value > 0) {
-  const shouldRedirect = rawAreaSlug.value !== areaSlug.value || rawPokemonId.value !== canonicalRouteId.value
+if (rawPokemonId.value) {
+  let targetRouteId = formatPokemonRouteId(rawPokemonId.value)
+  let targetFormId = rawFormId.value ? formatPokemonRouteId(rawFormId.value) : ''
+
+  if (targetRouteId.includes('_')) {
+    const entries = await loadRegion(areaSlug.value).catch(() => [] as RegionEntry[])
+    const matchedEntry = entries.find((entry: RegionEntry) => formatPokemonRouteId(entry.pokemon_id) === targetRouteId)
+
+    if (matchedEntry) {
+      targetRouteId = formatPokemonRouteId(matchedEntry.dex)
+      targetFormId = targetFormId || formatPokemonRouteId(matchedEntry.pokemon_id)
+    }
+  }
+  else {
+    const dexNumber = parsePokemonDexNumber(targetRouteId)
+    if (Number.isFinite(dexNumber) && dexNumber > 0) {
+      targetRouteId = formatPokemonRouteId(dexNumber)
+    }
+  }
+
+  const normalizedCurrentFormId = rawFormId.value ? formatPokemonRouteId(rawFormId.value) : ''
+  const shouldRedirect = rawAreaSlug.value !== areaSlug.value
+    || rawPokemonId.value !== targetRouteId
+    || normalizedCurrentFormId !== targetFormId
 
   if (shouldRedirect) {
-    await navigateTo(buildPokemonDetailPath(areaSlug.value, pokemonId.value), {
+    await navigateTo(buildPokemonDetailPath(areaSlug.value, targetRouteId, targetFormId || undefined), {
       redirectCode: 301,
       replace: true
     })
@@ -125,37 +195,117 @@ const statLabels = {
   speed: 'すばやさ'
 } as const
 
-const { data } = await useAsyncData<PokemonPageData>(() => `pokedex-pokemon-${areaSlug.value}-${pokemonId.value}`, async () => {
-  if (!Number.isFinite(pokemonId.value) || pokemonId.value < 1) {
+const { data } = await useAsyncData<PokemonPageData>(() => `pokedex-pokemon-${areaSlug.value}-${rawPokemonId.value}`, async () => {
+  if (!rawPokemonId.value) {
     return {
-      ready: false,
-      pokemon: null,
-      areaSlug: areaSlug.value,
-      areaLabel: areaSlug.value,
+      ...createDefaultPokemonPageData(areaSlug.value),
       message: 'ポケモン番号が不正です。'
     }
   }
 
   try {
-    const [pokemon, regions] = await Promise.all([
-      loadPokemon(pokemonId.value),
-      loadRegions().catch(() => [] as RegionMeta[])
+    const [regions, entries, index] = await Promise.all([
+      loadRegions().catch(() => [] as RegionMeta[]),
+      loadRegion(areaSlug.value).catch(() => [] as RegionEntry[]),
+      loadIndex().catch(() => [] as PokemonIndexItem[])
     ])
     const matchedRegion = regions.find((region: RegionMeta) => region.slug === areaSlug.value)
+    const pokemonMap = new Map<string, PokemonIndexItem>(index.map((item: PokemonIndexItem) => [item.id, item] as [string, PokemonIndexItem]))
+    const sortedEntries = [...entries].sort((left: RegionEntry, right: RegionEntry) => left.dex - right.dex || left.national_dex - right.national_dex || left.pokemon_id.localeCompare(right.pokemon_id))
+    const normalizedRouteId = formatPokemonRouteId(rawPokemonId.value)
+    const matchedEntry = normalizedRouteId.includes('_')
+      ? sortedEntries.find((entry: RegionEntry) => formatPokemonRouteId(entry.pokemon_id) === normalizedRouteId)
+      : undefined
+    const currentDex = matchedEntry?.dex ?? parsePokemonDexNumber(normalizedRouteId)
+
+    if (!Number.isFinite(currentDex) || currentDex <= 0) {
+      return {
+        ...createDefaultPokemonPageData(areaSlug.value),
+        areaLabel: matchedRegion?.label ?? areaSlug.value,
+        message: 'ポケモン番号が不正です。'
+      }
+    }
+
+    const dexEntries = sortedEntries.filter((entry: RegionEntry) => entry.dex === currentDex)
+    if (dexEntries.length === 0) {
+      return {
+        ...createDefaultPokemonPageData(areaSlug.value),
+        areaLabel: matchedRegion?.label ?? areaSlug.value,
+        message: '対象ポケモンのデータが見つかりません。'
+      }
+    }
+
+    const loadedEntries = (await Promise.all(dexEntries.map(async (entry: RegionEntry) => {
+      try {
+        const pokemon = await loadPokemon(entry.pokemon_id)
+        return {
+          entry,
+          pokemon
+        }
+      }
+      catch {
+        const fallback = pokemonMap.get(entry.pokemon_id)
+        if (!fallback) {
+          return null
+        }
+
+        return {
+          entry,
+          pokemon: fallback as PokemonDetail
+        }
+      }
+    }))).filter((entry): entry is { entry: RegionEntry; pokemon: PokemonDetail } => Boolean(entry))
+
+    if (loadedEntries.length === 0) {
+      return {
+        ...createDefaultPokemonPageData(areaSlug.value),
+        areaLabel: matchedRegion?.label ?? areaSlug.value,
+        message: '対象ポケモンのデータが見つかりません。'
+      }
+    }
+
+    const primaryEntryId = loadedEntries[0]?.entry.pokemon_id
+    const pokemonEntries: PokemonPageEntry[] = loadedEntries.map(({ entry, pokemon }, entryIndex, allEntries) => ({
+      id: entry.pokemon_id,
+      localDex: entry.dex,
+      nationalDex: entry.national_dex,
+      label: createFormLabel(pokemon, entryIndex, allEntries),
+      to: buildPokemonDetailPath(areaSlug.value, entry.dex, entry.pokemon_id === primaryEntryId ? undefined : entry.pokemon_id),
+      pokemon
+    }))
+
+    const uniqueDexEntries = [...new Map(
+      sortedEntries.map((entry: RegionEntry) => [entry.dex, entry] as const)
+    ).values()]
+    const currentEntryIndex = uniqueDexEntries.findIndex((entry: RegionEntry) => entry.dex === currentDex)
+    const createPageLink = (entry?: RegionEntry): PokemonPageLink | null => {
+      if (!entry) {
+        return null
+      }
+
+      const matchedPokemon = pokemonMap.get(entry.pokemon_id)
+
+      return {
+        dex: entry.dex,
+        name: matchedPokemon?.name ?? `Pokemon ${entry.national_dex}`,
+        to: buildPokemonDetailPath(areaSlug.value, entry.dex)
+      }
+    }
 
     return {
       ready: true,
-      pokemon,
+      entries: pokemonEntries,
       areaSlug: areaSlug.value,
       areaLabel: matchedRegion?.label ?? areaSlug.value,
+      dex: currentDex,
+      previousPokemon: currentEntryIndex > 0 ? createPageLink(uniqueDexEntries[currentEntryIndex - 1]) : null,
+      nextPokemon: currentEntryIndex >= 0 ? createPageLink(uniqueDexEntries[currentEntryIndex + 1]) : null,
       message: ''
     }
   }
   catch {
     return {
-      ready: false,
-      pokemon: null,
-      areaSlug: areaSlug.value,
+      ...createDefaultPokemonPageData(areaSlug.value),
       areaLabel: areaSlug.value,
       message: '対象ポケモンのデータが見つかりません。'
     }
@@ -163,9 +313,25 @@ const { data } = await useAsyncData<PokemonPageData>(() => `pokedex-pokemon-${ar
 })
 
 const pageData = computed<PokemonPageData>(() => data.value ?? createDefaultPokemonPageData(areaSlug.value))
-const pokemon = computed<PokemonDetail | null>(() => pageData.value.pokemon)
+const activeFormId = computed(() => {
+  const normalized = rawFormId.value ? formatPokemonRouteId(rawFormId.value) : ''
+  return normalized.includes('_') ? normalized : ''
+})
+const activeEntry = computed<PokemonPageEntry | null>(() => {
+  if (activeFormId.value) {
+    const matched = pageData.value.entries.find((entry: PokemonPageEntry) => entry.id === activeFormId.value)
+    if (matched) {
+      return matched
+    }
+  }
+
+  return pageData.value.entries[0] ?? null
+})
+const pokemon = computed<PokemonDetail | null>(() => activeEntry.value?.pokemon ?? null)
+const currentDexLabel = computed(() => pageData.value.dex !== null ? formatPokemonNumber(pageData.value.dex) : '')
 const backPath = computed(() => `${appConfig.navigation.pokedex}/${pageData.value.areaSlug || appConfig.site.defaultArea}`)
 const isGlobalArea = computed(() => pageData.value.areaSlug === 'global')
+const hasMultipleEntries = computed(() => pageData.value.entries.length > 1)
 const breadcrumbItems = computed(() => [
   { label: 'ホーム', to: appConfig.navigation.home },
   { label: 'ポケモン図鑑', to: appConfig.navigation.pokedex },
@@ -271,7 +437,7 @@ watch(() => pokemon.value?.id, () => {
 })
 
 useSeoMeta({
-  title: () => pokemon.value ? `${pokemon.value.name} ${formatPokemonNumber(pokemon.value.id)}` : 'ポケモン詳細',
+  title: () => pokemon.value ? `${pokemon.value.name} ${currentDexLabel.value}` : 'ポケモン詳細',
   description: () => descriptionText.value || '個別ポケモンデータを静的 JSON から読み込む詳細ページです。'
 })
 </script>
@@ -281,15 +447,70 @@ useSeoMeta({
     <AppBreadcrumbs :items="breadcrumbItems" />
 
     <section v-if="pokemon" class="page-stack">
+      <section class="surface section-card detail-nav">
+        <div class="detail-nav__slot detail-nav__slot--start">
+          <NuxtLink
+            v-if="pageData.previousPokemon"
+            :to="pageData.previousPokemon.to"
+            class="pill-link detail-nav__link"
+          >
+            <span class="detail-nav__eyebrow">前へ</span>
+            <strong>{{ pageData.previousPokemon.name }}</strong>
+          </NuxtLink>
+        </div>
+
+        <div class="detail-nav__slot detail-nav__slot--center">
+          <NuxtLink :to="backPath" class="button-primary button-primary--secondary detail-nav__top">
+            一覧へ
+          </NuxtLink>
+        </div>
+
+        <div class="detail-nav__slot detail-nav__slot--end">
+          <NuxtLink
+            v-if="pageData.nextPokemon"
+            :to="pageData.nextPokemon.to"
+            class="pill-link detail-nav__link"
+          >
+            <span class="detail-nav__eyebrow">次へ</span>
+            <strong>{{ pageData.nextPokemon.name }}</strong>
+          </NuxtLink>
+        </div>
+      </section>
+
+      <section v-if="hasMultipleEntries" class="surface section-card form-switcher">
+        <div class="section-header">
+          <div>
+            <span class="eyebrow">Forms</span>
+            <h2 class="section-title">フォーム切り替え</h2>
+          </div>
+        </div>
+
+        <div class="form-switcher__list">
+          <NuxtLink
+            v-for="entry in pageData.entries"
+            :key="entry.id"
+            :to="entry.to"
+            class="pill-link form-switcher__link"
+            :class="{ 'pill-link--active': entry.id === activeEntry?.id }"
+          >
+            <span>{{ entry.label }}</span>
+            <strong>{{ entry.pokemon.types.join(' / ') || entry.id }}</strong>
+          </NuxtLink>
+        </div>
+      </section>
+
       <section class="hero surface">
         <div class="hero__content">
           <span class="eyebrow">{{ pageData.areaLabel }}</span>
           <p class="hero__description hero__description--tight">
-            {{ formatPokemonNumber(pokemon.id) }}
+            {{ currentDexLabel }}
           </p>
           <h1 class="hero__title hero__title--detail">
             {{ pokemon.name }}
           </h1>
+          <p v-if="hasMultipleEntries" class="hero__description hero__description--tight">
+            {{ activeEntry?.label }}
+          </p>
           <p class="hero__description">
             {{ pokemon.classification ?? '分類情報は準備中です。' }}
           </p>
@@ -309,7 +530,7 @@ useSeoMeta({
             @error="pokemonImageVisible = false"
           >
           <div v-else class="pokemon-hero__fallback">
-            {{ formatPokemonNumber(pokemon.id) }}
+            {{ currentDexLabel }}
           </div>
         </div>
       </section>
@@ -329,7 +550,7 @@ useSeoMeta({
         </article>
         <article class="surface info-card">
           <span class="eyebrow">Forms</span>
-          <strong class="info-card__value info-card__value--small">{{ pokemon.forms?.join(' / ') ?? '通常のみ' }}</strong>
+          <strong class="info-card__value info-card__value--small">{{ activeEntry?.label ?? '通常のみ' }}</strong>
         </article>
       </section>
 
@@ -411,6 +632,68 @@ useSeoMeta({
 </template>
 
 <style scoped>
+.detail-nav {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 1rem;
+  align-items: center;
+}
+
+.detail-nav__slot {
+  display: flex;
+  min-width: 0;
+}
+
+.detail-nav__slot--start {
+  justify-content: flex-start;
+}
+
+.detail-nav__slot--center {
+  justify-content: center;
+}
+
+.detail-nav__slot--end {
+  justify-content: flex-end;
+}
+
+.detail-nav__link {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+  min-width: min(100%, 220px);
+  max-width: 100%;
+  padding: 0.85rem 1rem;
+}
+
+.detail-nav__link strong {
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.detail-nav__eyebrow {
+  color: var(--text-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+}
+
+.detail-nav__top {
+  min-width: 108px;
+}
+
+.form-switcher__list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.form-switcher__link {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.2rem;
+}
+
 .global-description-list {
   display: grid;
   gap: 1rem;
@@ -447,5 +730,24 @@ useSeoMeta({
   font-size: 0.85rem;
   font-weight: 600;
   line-height: 1.2;
+}
+
+@media (max-width: 720px) {
+  .detail-nav {
+    grid-template-columns: 1fr;
+  }
+
+  .detail-nav__slot,
+  .detail-nav__slot--start,
+  .detail-nav__slot--center,
+  .detail-nav__slot--end {
+    justify-content: stretch;
+  }
+
+  .detail-nav__link,
+  .detail-nav__top,
+  .form-switcher__link {
+    width: 100%;
+  }
 }
 </style>

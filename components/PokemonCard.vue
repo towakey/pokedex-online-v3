@@ -14,11 +14,11 @@ const props = withDefaults(defineProps<{
 })
 
 const appConfig = useSiteAppConfig()
-const { buildPokemonDetailPath, getPokemonImagePath } = usePokedex()
+const { buildPokemonDetailPath, formatPokemonNumber, getPokemonImagePath } = usePokedex()
 const { getTypeColor } = useTypeColor()
-const pokemonNumber = computed(() => String(props.pokemon.id).padStart(4, '0'))
+const pokemonNumber = computed(() => formatPokemonNumber(props.pokemon.dex).replace(/^#/, ''))
 const cardSubtitle = computed(() => props.subtitle ?? `全国No. ${pokemonNumber.value}`)
-const cardLink = computed(() => props.to ?? buildPokemonDetailPath(appConfig.site.defaultArea, props.pokemon.id))
+const cardLink = computed(() => props.to ?? buildPokemonDetailPath(appConfig.site.defaultArea, props.pokemon.dex, props.pokemon.id))
 const imageVisible = ref(true)
 const imageSrc = computed(() => getPokemonImagePath(props.pokemon.id))
 

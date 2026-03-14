@@ -4,7 +4,7 @@ import { useSiteAppConfig } from '~/composables/useSiteAppConfig'
 import type { PokemonIndexItem, RegionEntry, RegionMeta } from '~/composables/usePokedex'
 
 interface RegionPokemonItem extends PokemonIndexItem {
-  dex: number
+  localDex: number
 }
 
 interface RegionPageData {
@@ -54,20 +54,21 @@ const { data } = await useAsyncData<RegionPageData>(() => `pokedex-region-${area
       loadRegions().catch(() => [] as RegionMeta[])
     ])
 
-    const pokemonMap = new Map<number, PokemonIndexItem>(index.map((pokemon: PokemonIndexItem) => [pokemon.id, pokemon] as [number, PokemonIndexItem]))
+    const pokemonMap = new Map<string, PokemonIndexItem>(index.map((pokemon: PokemonIndexItem) => [pokemon.id, pokemon] as [string, PokemonIndexItem]))
     const items: RegionPokemonItem[] = entries
       .map((entry: RegionEntry) => {
         const pokemon = pokemonMap.get(entry.pokemon_id)
 
         return {
-          dex: entry.dex,
+          localDex: entry.dex,
           id: entry.pokemon_id,
+          dex: pokemon?.dex ?? entry.national_dex,
           name: pokemon?.name ?? `Pokemon ${entry.pokemon_id}`,
           types: pokemon?.types ?? [],
           classification: pokemon?.classification
         }
       })
-      .sort((left: RegionPokemonItem, right: RegionPokemonItem) => left.dex - right.dex)
+      .sort((left: RegionPokemonItem, right: RegionPokemonItem) => left.localDex - right.localDex || left.dex - right.dex || left.id.localeCompare(right.id))
 
     const meta = regions.find((region: RegionMeta) => region.slug === areaSlug.value) ?? {
       ...createFallbackMeta(areaSlug.value),
@@ -102,8 +103,10 @@ const filteredItems = computed(() => {
 
   return pageData.value.items.filter((item: RegionPokemonItem) => {
     const matchesQuery = !query
-      || item.id.toString().includes(query)
+      || item.id.includes(query)
       || formatPokemonRouteId(item.id).includes(query)
+      || item.localDex.toString().includes(query)
+      || formatPokemonRouteId(item.localDex).includes(query)
       || item.dex.toString().includes(query)
       || formatPokemonRouteId(item.dex).includes(query)
       || item.name.toLowerCase().includes(query)
@@ -212,10 +215,10 @@ useSeoMeta({
       <div class="pokemon-grid">
         <PokemonCard
           v-for="pokemon in filteredItems"
-          :key="`${pageData.meta.slug}-${pokemon.dex}-${pokemon.id}`"
+          :key="`${pageData.meta.slug}-${pokemon.localDex}-${pokemon.id}`"
           :pokemon="pokemon"
-          :subtitle="`図鑑No. ${String(pokemon.dex).padStart(3, '0')}`"
-          :to="buildPokemonDetailPath(pageData.meta.slug, pokemon.id)"
+          :subtitle="`図鑑No. ${String(pokemon.localDex).padStart(3, '0')}`"
+          :to="buildPokemonDetailPath(pageData.meta.slug, pokemon.localDex, pokemon.id)"
         />
       </div>
     </section>

@@ -71,12 +71,15 @@ const filteredItems = computed<PokemonIndexItem[]>(() => {
 
       return pokemon.id.toString().includes(query)
         || formatPokemonRouteId(pokemon.id).includes(query)
+        || pokemon.dex.toString().includes(query)
+        || formatPokemonRouteId(pokemon.dex).includes(query)
         || pokemon.name.toLowerCase().includes(query)
         || pokemon.types.some((type: string) => type.toLowerCase().includes(query))
         || localizedNames.some((name: string) => name.includes(query))
     })
     .map((pokemon: SearchIndexItem) => ({
       id: pokemon.id,
+      dex: pokemon.dex,
       name: pokemon.name,
       types: pokemon.types,
       classification: pokemon.classification
@@ -198,7 +201,7 @@ useSeoMeta({
           v-for="pokemon in visibleItems"
           :key="pokemon.id"
           :pokemon="pokemon"
-          :to="buildPokemonDetailPath(appConfig.site.defaultArea, pokemon.id)"
+          :to="buildPokemonDetailPath(appConfig.site.defaultArea, pokemon.dex, pokemon.id)"
         />
       </div>
 
