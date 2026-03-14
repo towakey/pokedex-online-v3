@@ -119,6 +119,23 @@ const normalizeQueryValue = (value: unknown): string => {
   return String(value ?? '').trim()
 }
 
+const normalizeHashFormValue = (value: string): string => {
+  const normalized = String(value ?? '').trim().replace(/^#/, '')
+  if (!normalized) {
+    return ''
+  }
+
+  if (normalized.startsWith('form-')) {
+    return decodeURIComponent(normalized.slice(5)).trim()
+  }
+
+  if (normalized.startsWith('form=')) {
+    return decodeURIComponent(normalized.slice(5)).trim()
+  }
+
+  return ''
+}
+
 const createDefaultPokemonPageData = (areaSlug: string): PokemonPageData => ({
   ready: false,
   entries: [],
@@ -150,7 +167,7 @@ const createFormLabel = (pokemon: PokemonDetail, index: number, entries: Array<{
 const route = useRoute()
 const rawAreaSlug = computed(() => String(route.params.area ?? appConfig.site.defaultArea).toLowerCase())
 const rawPokemonId = computed(() => String(route.params.id ?? '').trim())
-const rawFormId = computed(() => normalizeQueryValue(route.query.form))
+const rawFormId = computed(() => normalizeQueryValue(route.query.form) || normalizeHashFormValue(route.hash))
 const areaSlug = computed(() => normalizeRegionSlug(rawAreaSlug.value))
 
 if (rawPokemonId.value) {

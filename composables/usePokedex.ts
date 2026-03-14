@@ -161,7 +161,7 @@ export const usePokedex = () => {
     const routeId = formatPokemonRouteId(id)
     const normalizedFormId = formId !== undefined ? formatPokemonRouteId(formId) : ''
     const hash = normalizedFormId && normalizedFormId.includes('_') && normalizedFormId !== routeId
-      ? `#form=${encodeURIComponent(normalizedFormId)}`
+      ? `#form-${encodeURIComponent(normalizedFormId)}`
       : ''
 
     return getAppPath(`pokedex/${normalizeRegionSlug(area)}/${routeId}${hash}`)
