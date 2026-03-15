@@ -18,6 +18,7 @@ interface PokemonRecord {
   height?: number
   weight?: number
   classification?: string
+  classifications?: Record<string, string>
   description?: string
   globalDescriptions?: Array<{
     version: string
@@ -25,7 +26,7 @@ interface PokemonRecord {
     description: string
   }>
   stats?: Partial<Record<StatKey, number>>
-  forms?: string[]
+  forms?: Record<string, string>
 }
 
 interface IndexRecord {
@@ -38,6 +39,7 @@ interface IndexRecord {
 
 interface SearchIndexRecord extends IndexRecord {
   names?: Record<string, string>
+  forms?: Record<string, string>
 }
 
 interface RegionEntry {
@@ -146,6 +148,20 @@ const pickLocalizedValue = (value: JsonValue | undefined): string | undefined =>
     .find((entryValue): entryValue is string => Boolean(entryValue))
 }
 
+const normalizeLocalizedValueMap = (value: JsonValue | undefined): Record<string, string> | undefined => {
+  if (typeof value === 'string') {
+    const normalized = toStringValue(value)
+    return normalized ? { default: normalized } : undefined
+  }
+
+  return normalizeLocalizedMap(value)
+}
+
+const mergeLocalizedMaps = (...maps: Array<Record<string, string> | undefined>): Record<string, string> | undefined => {
+  const entries = maps.flatMap((map) => map ? Object.entries(map) : [])
+  return entries.length > 0 ? Object.fromEntries(entries) : undefined
+}
+
 const collectStrings = (value: JsonValue | undefined): string[] => {
   if (typeof value === 'string') {
     return toStringValue(value) ? [value.trim()] : []
@@ -167,12 +183,6 @@ const extractDescriptionText = (value: JsonValue | undefined): string | undefine
     .sort((left, right) => right.length - left.length)
 
   return texts[0]
-}
-
-const collectFormLabels = (entryMap: Record<string, JsonRecord>): string[] => {
-  return uniqueStrings(
-    Object.values(entryMap).flatMap((entryValue) => collectStrings(entryValue.forms))
-  )
 }
 
 const selectPrimaryEntry = (entryMap: Record<string, JsonRecord>): JsonRecord | undefined => {
@@ -274,7 +284,11 @@ const createGlobalDescriptionEntries = (
 const createPokemonBaseRecord = (id: string, dex: number, entryMap: Record<string, JsonRecord>): PokemonRecord => {
   const primaryEntry = selectPrimaryEntry(entryMap)
   const names = normalizeLocalizedMap(primaryEntry?.name)
-  const forms = collectFormLabels(entryMap)
+  const forms = mergeLocalizedMaps(
+    normalizeLocalizedMap(primaryEntry?.forms),
+    normalizeLocalizedValueMap(primaryEntry?.form_name)
+  )
+  const classifications = normalizeLocalizedValueMap(primaryEntry?.classification)
 
   return {
     id,
@@ -284,15 +298,20 @@ const createPokemonBaseRecord = (id: string, dex: number, entryMap: Record<strin
     types: [],
     height: pickFirstNumber(primaryEntry?.height),
     weight: pickFirstNumber(primaryEntry?.weight),
-    classification: pickLocalizedValue(primaryEntry?.classification),
-    forms: forms.length > 0 ? forms : undefined
+    classification: pickFirstString(classifications?.jpn, classifications?.ja, classifications?.eng, classifications?.en) ?? pickLocalizedValue(primaryEntry?.classification),
+    classifications,
+    forms
   }
 }
 
 const createPokemonRegionalRecord = (id: string, dex: number, entryMap: Record<string, JsonRecord>): PokemonRecord => {
   const primaryEntry = selectPrimaryEntry(entryMap)
   const names = normalizeLocalizedMap(primaryEntry?.name)
-  const forms = collectFormLabels(entryMap)
+  const forms = mergeLocalizedMaps(
+    normalizeLocalizedMap(primaryEntry?.forms),
+    normalizeLocalizedValueMap(primaryEntry?.form_name)
+  )
+  const classifications = normalizeLocalizedValueMap(primaryEntry?.classification)
 
   return {
     id,
@@ -305,10 +324,11 @@ const createPokemonRegionalRecord = (id: string, dex: number, entryMap: Record<s
     ]),
     height: pickFirstNumber(primaryEntry?.height),
     weight: pickFirstNumber(primaryEntry?.weight),
-    classification: pickLocalizedValue(primaryEntry?.classification),
+    classification: pickFirstString(classifications?.jpn, classifications?.ja, classifications?.eng, classifications?.en) ?? pickLocalizedValue(primaryEntry?.classification),
+    classifications,
     description: extractDescriptionText(primaryEntry?.description),
     stats: normalizeStatsObject(primaryEntry),
-    forms: forms.length > 0 ? forms : undefined
+    forms
   }
 }
 
@@ -557,24 +577,11 @@ const normalizeStats = (record: JsonRecord): Partial<Record<StatKey, number>> | 
   }
 }
 
-const normalizeForms = (record: JsonRecord): string[] | undefined => {
-  const collected: Array<string | undefined> = []
-
-  if (Array.isArray(record.forms)) {
-    for (const form of record.forms) {
-      if (typeof form === 'string') {
-        collected.push(form)
-      }
-      else if (isRecord(form)) {
-        collected.push(pickFirstString(form.name, form.label, form.ja, form.en))
-      }
-    }
-  }
-
-  collected.push(pickFirstString(record.form_name))
-
-  const normalized = uniqueStrings(collected)
-  return normalized.length > 0 ? normalized : undefined
+const normalizeForms = (record: JsonRecord): Record<string, string> | undefined => {
+  return mergeLocalizedMaps(
+    normalizeLocalizedMap(record.forms),
+    normalizeLocalizedValueMap(record.form_name)
+  )
 }
 
 const normalizePokemonRecord = (record: JsonRecord, path: string[]): PokemonRecord | undefined => {
@@ -602,7 +609,22 @@ const normalizePokemonRecord = (record: JsonRecord, path: string[]): PokemonReco
   const description = normalizeDescription(record)
   const stats = normalizeStats(record)
   const forms = normalizeForms(record)
-  const classification = pickFirstString(record.classification, record.category, record.class, record.species)
+  const classifications = mergeLocalizedMaps(
+    normalizeLocalizedValueMap(record.classification),
+    normalizeLocalizedValueMap(record.category),
+    normalizeLocalizedValueMap(record.class),
+    normalizeLocalizedValueMap(record.species)
+  )
+  const classification = pickFirstString(
+    classifications?.jpn,
+    classifications?.ja,
+    classifications?.eng,
+    classifications?.en,
+    record.classification,
+    record.category,
+    record.class,
+    record.species
+  )
   const height = pickFirstNumber(record.height, record.height_m, record.heightMeter, record.height_meter)
   const weight = pickFirstNumber(record.weight, record.weight_kg, record.weightKg, record.weight_kgf)
 
@@ -618,6 +640,7 @@ const normalizePokemonRecord = (record: JsonRecord, path: string[]): PokemonReco
     height,
     weight,
     classification,
+    classifications,
     description,
     stats,
     forms
@@ -692,10 +715,11 @@ const mergePokemonRecord = (current: PokemonRecord | undefined, incoming: Pokemo
     height: current.height ?? incoming.height,
     weight: current.weight ?? incoming.weight,
     classification: current.classification ?? incoming.classification,
+    classifications: current.classifications || incoming.classifications ? { ...(current.classifications ?? {}), ...(incoming.classifications ?? {}) } : undefined,
     description: (current.description?.length ?? 0) >= (incoming.description?.length ?? 0) ? current.description : incoming.description,
     globalDescriptions: current.globalDescriptions ?? incoming.globalDescriptions,
     stats: current.stats || incoming.stats ? { ...(current.stats ?? {}), ...(incoming.stats ?? {}) } : undefined,
-    forms: current.forms || incoming.forms ? uniqueStrings([...(current.forms ?? []), ...(incoming.forms ?? [])]) : undefined
+    forms: current.forms || incoming.forms ? { ...(current.forms ?? {}), ...(incoming.forms ?? {}) } : undefined
   }
 }
 
@@ -849,7 +873,8 @@ const searchIndexRecords: SearchIndexRecord[] = pokemonRecords.map((pokemon) => 
   name: pokemon.name,
   types: pokemon.types,
   classification: pokemon.classification,
-  names: pokemon.names
+  names: pokemon.names,
+  forms: pokemon.forms
 }))
 
 const regionMeta: RegionMeta[] = [

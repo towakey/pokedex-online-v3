@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useSiteAppConfig } from '~/composables/useSiteAppConfig'
-import type { PokemonIndexItem, SearchIndexItem } from '~/composables/usePokedex'
+import type { SearchIndexItem } from '~/composables/usePokedex'
+
+type LocalizedTextMap = Record<string, string>
+
+interface HomePokemonItem extends SearchIndexItem {
+  detailPath?: string
+}
 
 interface RegionSummary {
   slug: string
@@ -11,8 +17,7 @@ interface RegionSummary {
 
 interface HomePageData {
   ready: boolean
-  index: PokemonIndexItem[]
-  searchIndex: SearchIndexItem[]
+  searchIndex: HomePokemonItem[]
   regions: RegionSummary[]
   message: string
 }
@@ -20,30 +25,114 @@ interface HomePageData {
 const appConfig = useSiteAppConfig()
 const createDefaultPageData = (): HomePageData => ({
   ready: false,
-  index: [],
   searchIndex: [],
   regions: [],
   message: ''
 })
 
-const { buildPokemonDetailPath, formatPokemonRouteId, loadIndex, loadRegions, loadSearchIndex } = usePokedex()
+const route = useRoute()
+const { buildPokemonDetailPath, formatPokemonRouteId, loadRegions, loadSearchIndex } = usePokedex()
 const searchQuery = ref('')
 const visibleCount = ref(24)
 const pokedexTopPath = computed(() => appConfig.navigation.pokedex)
 const defaultAreaPath = computed(() => `${appConfig.navigation.pokedex}/${appConfig.site.defaultArea}`)
+const isDebug = computed(() => route.query.debug !== undefined)
+
+const normalizeLanguageKey = (value: string): string => String(value ?? '').trim().toLowerCase()
+const normalizeSelectorKey = (value: string): string => String(value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+const hasLocalizedText = (value?: LocalizedTextMap): value is LocalizedTextMap => Boolean(value && Object.values(value).some((entry) => String(entry ?? '').trim()))
+const getLocalizedText = (value: LocalizedTextMap | undefined, fallback?: string): string | undefined => {
+  if (!value) {
+    return fallback
+  }
+
+  const normalizedValue = Object.fromEntries(
+    Object.entries(value).map(([key, entryValue]) => [normalizeLanguageKey(key), entryValue])
+  ) as LocalizedTextMap
+
+  return normalizedValue.jpn
+    ?? normalizedValue.ja
+    ?? normalizedValue.eng
+    ?? normalizedValue.en
+    ?? normalizedValue.default
+    ?? Object.values(normalizedValue).find((entryValue) => String(entryValue).trim())
+    ?? fallback
+}
+
+const createFormLabel = (pokemon: HomePokemonItem, index: number, entryCount: number): string => {
+  if (hasLocalizedText(pokemon.forms)) {
+    return getLocalizedText(pokemon.forms, pokemon.name) ?? pokemon.name
+  }
+
+  if (hasLocalizedText(pokemon.names)) {
+    return getLocalizedText(pokemon.names, pokemon.name) ?? pokemon.name
+  }
+
+  const typeLabel = pokemon.types.filter(Boolean).join(' / ')
+  if (typeLabel) {
+    return typeLabel
+  }
+
+  return entryCount > 1 ? `フォーム ${index + 1}` : '通常'
+}
+
+const buildDetailPathMap = (items: HomePokemonItem[]): Map<string, string> => {
+  const detailPathMap = new Map<string, string>()
+  const groups = new Map<number, HomePokemonItem[]>()
+
+  for (const item of items) {
+    const current = groups.get(item.dex) ?? []
+    current.push(item)
+    groups.set(item.dex, current)
+  }
+
+  for (const [dex, entries] of groups.entries()) {
+    const sortedEntries = [...entries].sort((left, right) => left.dex - right.dex || left.id.localeCompare(right.id))
+    const labelCounts = new Map<string, number>()
+    const labels = sortedEntries.map((entry, index) => createFormLabel(entry, index, sortedEntries.length))
+
+    for (const label of labels) {
+      const normalizedLabel = normalizeSelectorKey(label)
+      if (!normalizedLabel) {
+        continue
+      }
+
+      labelCounts.set(normalizedLabel, (labelCounts.get(normalizedLabel) ?? 0) + 1)
+    }
+
+    const seenCounts = new Map<string, number>()
+    sortedEntries.forEach((entry, index) => {
+      const label = labels[index]
+      const normalizedLabel = normalizeSelectorKey(label)
+      const occurrence = normalizedLabel ? (seenCounts.get(normalizedLabel) ?? 0) + 1 : 1
+
+      if (normalizedLabel) {
+        seenCounts.set(normalizedLabel, occurrence)
+      }
+
+      const selector = index === 0
+        ? undefined
+        : normalizedLabel && (labelCounts.get(normalizedLabel) ?? 0) > 1
+          ? `${label}~${occurrence}`
+          : label
+
+      detailPathMap.set(entry.id, buildPokemonDetailPath(appConfig.site.defaultArea, dex, selector))
+    })
+  }
+
+  return detailPathMap
+}
 
 const { data } = await useAsyncData<HomePageData>('home-page-data', async () => {
   try {
-    const [index, searchIndex, regions] = await Promise.all([
-      loadIndex(),
+    const [searchIndex, regions] = await Promise.all([
       loadSearchIndex().catch(() => [] as SearchIndexItem[]),
       loadRegions().catch(() => [] as RegionSummary[])
     ])
 
     return {
       ready: true,
-      index,
-      searchIndex: searchIndex.length > 0 ? searchIndex : index,
+      searchIndex,
       regions,
       message: ''
     }
@@ -57,16 +146,23 @@ const { data } = await useAsyncData<HomePageData>('home-page-data', async () => 
 })
 
 const pageData = computed<HomePageData>(() => data.value ?? createDefaultPageData())
+const linkedItems = computed<HomePokemonItem[]>(() => {
+  const detailPathMap = buildDetailPathMap(pageData.value.searchIndex)
+  return pageData.value.searchIndex.map((item) => ({
+    ...item,
+    detailPath: detailPathMap.get(item.id) ?? buildPokemonDetailPath(appConfig.site.defaultArea, item.dex)
+  }))
+})
 
-const filteredItems = computed<PokemonIndexItem[]>(() => {
+const filteredItems = computed<HomePokemonItem[]>(() => {
   const query = searchQuery.value.trim().toLowerCase()
 
   if (!query) {
-    return pageData.value.index
+    return linkedItems.value
   }
 
-  return pageData.value.searchIndex
-    .filter((pokemon: SearchIndexItem) => {
+  return linkedItems.value
+    .filter((pokemon: HomePokemonItem) => {
       const localizedNames = Object.values(pokemon.names ?? {}).map((value: string) => value.toLowerCase())
 
       return pokemon.id.toString().includes(query)
@@ -77,13 +173,6 @@ const filteredItems = computed<PokemonIndexItem[]>(() => {
         || pokemon.types.some((type: string) => type.toLowerCase().includes(query))
         || localizedNames.some((name: string) => name.includes(query))
     })
-    .map((pokemon: SearchIndexItem) => ({
-      id: pokemon.id,
-      dex: pokemon.dex,
-      name: pokemon.name,
-      types: pokemon.types,
-      classification: pokemon.classification
-    }))
 })
 
 const visibleItems = computed(() => filteredItems.value.slice(0, visibleCount.value))
@@ -92,7 +181,7 @@ const canLoadMore = computed(() => visibleItems.value.length < filteredItems.val
 const summaryItems = computed(() => ([
   {
     label: '収録ポケモン',
-    value: pageData.value.index.length.toLocaleString()
+    value: pageData.value.searchIndex.length.toLocaleString()
   },
   {
     label: '検索結果',
@@ -107,6 +196,15 @@ const summaryItems = computed(() => ([
 watch(searchQuery, () => {
   visibleCount.value = 24
 })
+
+const debugPayload = computed(() => JSON.stringify({
+  route: {
+    params: route.params,
+    query: route.query
+  },
+  pageData: pageData.value,
+  linkedItems: linkedItems.value
+}, null, 2))
 
 useSeoMeta({
   title: 'ホーム',
@@ -201,7 +299,7 @@ useSeoMeta({
           v-for="pokemon in visibleItems"
           :key="pokemon.id"
           :pokemon="pokemon"
-          :to="buildPokemonDetailPath(appConfig.site.defaultArea, pokemon.dex, pokemon.id)"
+          :to="pokemon.detailPath"
         />
       </div>
 
@@ -211,5 +309,26 @@ useSeoMeta({
         </button>
       </div>
     </section>
+
+    <section v-if="isDebug" class="surface section-card">
+      <div class="section-header">
+        <div>
+          <span class="eyebrow">Debug</span>
+          <h2 class="section-title">取得JSON</h2>
+        </div>
+      </div>
+      <pre class="debug-json">{{ debugPayload }}</pre>
+    </section>
   </div>
 </template>
+
+<style scoped>
+.debug-json {
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+</style>

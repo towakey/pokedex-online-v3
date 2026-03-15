@@ -98,7 +98,7 @@ useSeoMeta({
             {{ pokemon.name }}
           </h1>
           <p class="hero__description">
-            {{ pokemon.classification ?? '分類情報は準備中です。' }}
+            {{ pokemon.classification ?? '不明' }}
           </p>
           <div class="type-list">
             <span v-for="type in pokemon.types" :key="type" class="type-chip">

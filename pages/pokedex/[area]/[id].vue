@@ -2,13 +2,15 @@
 import { computed, ref, watch } from 'vue'
 import { useSiteAppConfig } from '~/composables/useSiteAppConfig'
 import { useTypeColor } from '~/composables/useTypeColor'
-import type { PokemonDetail, PokemonIndexItem, RegionEntry, RegionMeta } from '~/composables/usePokedex'
+import type { PokemonDetail, RegionEntry, RegionMeta, SearchIndexItem } from '~/composables/usePokedex'
 
 type StatKey = 'hp' | 'attack' | 'defense' | 'special_attack' | 'special_defense' | 'speed'
+type LocalizedTextMap = Record<string, string>
 
 interface PokemonPageLink {
   dex: number
   name: string
+  names?: LocalizedTextMap
   to: string
 }
 
@@ -16,9 +18,15 @@ interface PokemonPageEntry {
   id: string
   localDex: number
   nationalDex: number
-  label: string
-  to: string
   pokemon: PokemonDetail
+}
+
+interface FormEntryView extends PokemonPageEntry {
+  aliases: string[]
+  displayLabel: string
+  labelMap: LocalizedTextMap
+  selector: string
+  to: string
 }
 
 interface PokemonPageData {
@@ -57,6 +65,12 @@ interface GlobalDescriptionGroup {
   versions: GlobalDescriptionGroupVersion[]
 }
 
+interface LanguageOption {
+  key: string
+  label: string
+  aliases?: string[]
+}
+
 const appConfig = useSiteAppConfig()
 const runtimeConfig = useRuntimeConfig() as { public?: { appBaseURL?: string } }
 const { getTypeColor } = useTypeColor()
@@ -67,10 +81,10 @@ const {
   formatPokemonNumber,
   formatPokemonRouteId,
   getPokemonImagePath,
-  loadIndex,
   loadPokemon,
   loadRegion,
   loadRegions,
+  loadSearchIndex,
   normalizeRegionSlug,
   parsePokemonDexNumber
 } = usePokedex()
@@ -111,6 +125,112 @@ const getPokedexVersionIconPath = (version: string): string => {
   return buildAssetPath(`${appConfig.pokedex.versionIconBasePath}/${normalizedVersion}.png`)
 }
 
+const LANGUAGE_OPTIONS: LanguageOption[] = [
+  { key: 'jpn', label: '日本語', aliases: ['ja', 'japanese'] },
+  { key: 'eng', label: 'English', aliases: ['en'] },
+  { key: 'fra', label: 'Français' },
+  { key: 'ita', label: 'Italiano' },
+  { key: 'ger', label: 'Deutsch', aliases: ['de'] },
+  { key: 'spa', label: 'Español', aliases: ['es'] },
+  { key: 'kor', label: '한국어', aliases: ['ko'] },
+  { key: 'chs', label: '简体中文', aliases: ['zh-cn', 'zh_hans'] },
+  { key: 'cht', label: '繁體中文', aliases: ['zh-tw', 'zh_hant'] }
+]
+
+const FALLBACK_LANGUAGE_MAP = {
+  normal: {
+    jpn: '通常',
+    eng: 'Standard',
+    fra: 'Normal',
+    ita: 'Normale',
+    ger: 'Standard',
+    spa: 'Normal',
+    kor: '기본',
+    chs: '通常',
+    cht: '通常',
+    default: 'Standard'
+  },
+  form: (index: number) => ({
+    jpn: `フォーム ${index}`,
+    eng: `Form ${index}`,
+    fra: `Forme ${index}`,
+    ita: `Forma ${index}`,
+    ger: `Form ${index}`,
+    spa: `Forma ${index}`,
+    kor: `폼 ${index}`,
+    chs: `形态${index}`,
+    cht: `形態${index}`,
+    default: `Form ${index}`
+  })
+} as const
+
+const normalizeLanguageKey = (value: string): string => String(value).trim().toLowerCase()
+
+const uniqueStrings = (values: Array<string | undefined>): string[] => {
+  return [...new Set(values.map((value) => String(value ?? '').trim()).filter(Boolean))]
+}
+
+const hasLocalizedText = (value?: LocalizedTextMap): value is LocalizedTextMap => {
+  return Boolean(value && Object.values(value).some((entry) => String(entry ?? '').trim()))
+}
+
+const getLanguageCandidates = (languageKey: string): string[] => {
+  const normalizedLanguageKey = normalizeLanguageKey(languageKey)
+  const option = LANGUAGE_OPTIONS.find((entry) => entry.key === normalizedLanguageKey || entry.aliases?.includes(normalizedLanguageKey))
+
+  return uniqueStrings([
+    normalizedLanguageKey,
+    option?.key,
+    ...(option?.aliases ?? []),
+    normalizedLanguageKey === 'jpn' ? 'ja' : '',
+    normalizedLanguageKey === 'eng' ? 'en' : '',
+    'jpn',
+    'ja',
+    'eng',
+    'en',
+    'default'
+  ])
+}
+
+const getLocalizedText = (value: LocalizedTextMap | undefined, languageKey: string, fallback?: string): string | undefined => {
+  if (!value) {
+    return fallback
+  }
+
+  const normalizedValue = Object.fromEntries(
+    Object.entries(value).map(([key, entryValue]) => [normalizeLanguageKey(key), entryValue])
+  ) as LocalizedTextMap
+
+  for (const candidate of getLanguageCandidates(languageKey)) {
+    const matched = normalizedValue[candidate]
+    if (matched) {
+      return matched
+    }
+  }
+
+  return Object.values(normalizedValue).find((entryValue) => String(entryValue).trim()) ?? fallback
+}
+
+const createStaticLocalizedMap = (value: string): LocalizedTextMap => ({
+  default: value
+})
+
+const createFormFallbackLabelMap = (index: number, entryCount: number): LocalizedTextMap => {
+  if (entryCount > 1) {
+    return FALLBACK_LANGUAGE_MAP.form(index + 1)
+  }
+
+  return FALLBACK_LANGUAGE_MAP.normal
+}
+
+const normalizeFormSelectorKey = (value: string): string => {
+  return String(value ?? '')
+    .normalize('NFKC')
+    .trim()
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase()
+}
+
 const normalizeQueryValue = (value: unknown): string => {
   if (Array.isArray(value)) {
     return String(value[0] ?? '').trim()
@@ -147,21 +267,55 @@ const createDefaultPokemonPageData = (areaSlug: string): PokemonPageData => ({
   message: ''
 })
 
-const createFormLabel = (pokemon: PokemonDetail, index: number, entries: Array<{ pokemon: PokemonDetail }>): string => {
-  const formsLabel = pokemon.forms?.filter(Boolean).join(' / ')
-  if (formsLabel) {
-    return formsLabel
+const createFormLabelMap = (pokemon: PokemonDetail, index: number, entryCount: number): LocalizedTextMap => {
+  if (hasLocalizedText(pokemon.forms)) {
+    return pokemon.forms
+  }
+
+  if (hasLocalizedText(pokemon.names)) {
+    return pokemon.names
   }
 
   const typeLabel = pokemon.types.filter(Boolean).join(' / ')
   if (typeLabel) {
-    const hasUniqueTypeLabel = entries.filter((entry) => entry.pokemon.types.filter(Boolean).join(' / ') === typeLabel).length === 1
-    if (hasUniqueTypeLabel) {
-      return typeLabel
-    }
+    return createStaticLocalizedMap(typeLabel)
   }
 
-  return entries.length > 1 ? `フォーム ${index + 1}` : '通常'
+  return createFormFallbackLabelMap(index, entryCount)
+}
+
+const createFormSelectorMaps = (labelMaps: LocalizedTextMap[]): LocalizedTextMap[] => {
+  const selectorMaps = labelMaps.map(() => ({} as LocalizedTextMap))
+
+  for (const languageKey of [...LANGUAGE_OPTIONS.map((option) => option.key), 'default']) {
+    const labelCounts = new Map<string, number>()
+    const labels = labelMaps.map((labelMap) => getLocalizedText(labelMap, languageKey, getLocalizedText(labelMap, 'default', '')) ?? '')
+
+    for (const label of labels) {
+      const normalizedLabel = normalizeFormSelectorKey(label)
+      if (!normalizedLabel) {
+        continue
+      }
+
+      labelCounts.set(normalizedLabel, (labelCounts.get(normalizedLabel) ?? 0) + 1)
+    }
+
+    const seenCounts = new Map<string, number>()
+    labels.forEach((label, index) => {
+      const normalizedLabel = normalizeFormSelectorKey(label)
+      if (!normalizedLabel) {
+        return
+      }
+
+      const occurrence = (seenCounts.get(normalizedLabel) ?? 0) + 1
+      seenCounts.set(normalizedLabel, occurrence)
+      selectorMaps[index][languageKey] = (labelCounts.get(normalizedLabel) ?? 0) > 1
+        ? `${label}~${occurrence}`
+        : label
+    })
+  }
+
+  return selectorMaps
 }
 
 const route = useRoute()
@@ -169,10 +323,11 @@ const rawAreaSlug = computed(() => String(route.params.area ?? appConfig.site.de
 const rawPokemonId = computed(() => String(route.params.id ?? '').trim())
 const rawFormId = computed(() => normalizeQueryValue(route.query.form) || normalizeHashFormValue(route.hash))
 const areaSlug = computed(() => normalizeRegionSlug(rawAreaSlug.value))
+const isDebug = computed(() => route.query.debug !== undefined)
 
 if (rawPokemonId.value) {
   let targetRouteId = formatPokemonRouteId(rawPokemonId.value)
-  let targetFormId = rawFormId.value ? formatPokemonRouteId(rawFormId.value) : ''
+  let preservedFormSelector = rawFormId.value || (targetRouteId.includes('_') ? targetRouteId : '')
 
   if (targetRouteId.includes('_')) {
     const entries = await loadRegion(areaSlug.value).catch(() => [] as RegionEntry[])
@@ -180,7 +335,7 @@ if (rawPokemonId.value) {
 
     if (matchedEntry) {
       targetRouteId = formatPokemonRouteId(matchedEntry.dex)
-      targetFormId = targetFormId || formatPokemonRouteId(matchedEntry.pokemon_id)
+      preservedFormSelector = rawFormId.value || formatPokemonRouteId(matchedEntry.pokemon_id)
     }
   }
   else {
@@ -190,13 +345,11 @@ if (rawPokemonId.value) {
     }
   }
 
-  const normalizedCurrentFormId = rawFormId.value ? formatPokemonRouteId(rawFormId.value) : ''
   const shouldRedirect = rawAreaSlug.value !== areaSlug.value
     || rawPokemonId.value !== targetRouteId
-    || normalizedCurrentFormId !== targetFormId
 
   if (shouldRedirect) {
-    await navigateTo(buildPokemonDetailPath(areaSlug.value, targetRouteId, targetFormId || undefined), {
+    await navigateTo(buildPokemonDetailPath(areaSlug.value, targetRouteId, preservedFormSelector || undefined), {
       redirectCode: 301,
       replace: true
     })
@@ -221,13 +374,13 @@ const { data } = await useAsyncData<PokemonPageData>(() => `pokedex-pokemon-${ar
   }
 
   try {
-    const [regions, entries, index] = await Promise.all([
+    const [regions, entries, searchIndex] = await Promise.all([
       loadRegions().catch(() => [] as RegionMeta[]),
       loadRegion(areaSlug.value).catch(() => [] as RegionEntry[]),
-      loadIndex().catch(() => [] as PokemonIndexItem[])
+      loadSearchIndex().catch(() => [] as SearchIndexItem[])
     ])
     const matchedRegion = regions.find((region: RegionMeta) => region.slug === areaSlug.value)
-    const pokemonMap = new Map<string, PokemonIndexItem>(index.map((item: PokemonIndexItem) => [item.id, item] as [string, PokemonIndexItem]))
+    const pokemonMap = new Map<string, SearchIndexItem>(searchIndex.map((item: SearchIndexItem) => [item.id, item] as [string, SearchIndexItem]))
     const sortedEntries = [...entries].sort((left: RegionEntry, right: RegionEntry) => left.dex - right.dex || left.national_dex - right.national_dex || left.pokemon_id.localeCompare(right.pokemon_id))
     const normalizedRouteId = formatPokemonRouteId(rawPokemonId.value)
     const matchedEntry = normalizedRouteId.includes('_')
@@ -281,13 +434,10 @@ const { data } = await useAsyncData<PokemonPageData>(() => `pokedex-pokemon-${ar
       }
     }
 
-    const primaryEntryId = loadedEntries[0]?.entry.pokemon_id
     const pokemonEntries: PokemonPageEntry[] = loadedEntries.map(({ entry, pokemon }, entryIndex, allEntries) => ({
       id: entry.pokemon_id,
       localDex: entry.dex,
       nationalDex: entry.national_dex,
-      label: createFormLabel(pokemon, entryIndex, allEntries),
-      to: buildPokemonDetailPath(areaSlug.value, entry.dex, entry.pokemon_id === primaryEntryId ? undefined : entry.pokemon_id),
       pokemon
     }))
 
@@ -305,6 +455,7 @@ const { data } = await useAsyncData<PokemonPageData>(() => `pokedex-pokemon-${ar
       return {
         dex: entry.dex,
         name: matchedPokemon?.name ?? `Pokemon ${entry.national_dex}`,
+        names: matchedPokemon?.names,
         to: buildPokemonDetailPath(areaSlug.value, entry.dex)
       }
     }
@@ -330,21 +481,73 @@ const { data } = await useAsyncData<PokemonPageData>(() => `pokedex-pokemon-${ar
 })
 
 const pageData = computed<PokemonPageData>(() => data.value ?? createDefaultPokemonPageData(areaSlug.value))
-const activeFormId = computed(() => {
-  const normalized = rawFormId.value ? formatPokemonRouteId(rawFormId.value) : ''
-  return normalized.includes('_') ? normalized : ''
+const selectedLanguage = ref<string>('jpn')
+const availableLanguages = computed<LanguageOption[]>(() => {
+  const maps = pageData.value.entries.flatMap((entry: PokemonPageEntry) => [
+    entry.pokemon.names,
+    entry.pokemon.forms,
+    entry.pokemon.classifications
+  ])
+  const filteredMaps = maps.filter((entry): entry is LocalizedTextMap => hasLocalizedText(entry))
+
+  return LANGUAGE_OPTIONS.filter((option) => filteredMaps.some((value) => getLanguageCandidates(option.key).some((candidate) => Boolean(value[candidate]))))
 })
-const activeEntry = computed<PokemonPageEntry | null>(() => {
-  if (activeFormId.value) {
-    const matched = pageData.value.entries.find((entry: PokemonPageEntry) => entry.id === activeFormId.value)
+
+watch(availableLanguages, (languages) => {
+  if (languages.length === 0) {
+    selectedLanguage.value = 'jpn'
+    return
+  }
+
+  const normalizedSelectedLanguage = normalizeLanguageKey(selectedLanguage.value)
+  const matched = languages.find((language) => language.key === normalizedSelectedLanguage || language.aliases?.includes(normalizedSelectedLanguage))
+  if (!matched) {
+    selectedLanguage.value = languages[0].key
+  }
+}, { immediate: true })
+
+const formEntries = computed<FormEntryView[]>(() => {
+  const entries = pageData.value.entries
+  const labelMaps = entries.map((entry, index) => createFormLabelMap(entry.pokemon, index, entries.length))
+  const selectorMaps = createFormSelectorMaps(labelMaps)
+
+  return entries.map((entry, index) => {
+    const labelMap = labelMaps[index]
+    const selectorMap = selectorMaps[index]
+    const displayLabel = getLocalizedText(labelMap, selectedLanguage.value, getLocalizedText(labelMap, 'default', entry.pokemon.name)) ?? entry.pokemon.name
+    const selector = getLocalizedText(selectorMap, selectedLanguage.value, getLocalizedText(selectorMap, 'default', displayLabel)) ?? displayLabel
+
+    return {
+      ...entry,
+      aliases: uniqueStrings([
+        entry.id,
+        ...Object.values(labelMap),
+        ...Object.values(selectorMap)
+      ]),
+      displayLabel,
+      labelMap,
+      selector,
+      to: buildPokemonDetailPath(pageData.value.areaSlug, entry.localDex, index === 0 ? undefined : selector)
+    }
+  })
+})
+
+const activeEntry = computed<FormEntryView | null>(() => {
+  const selector = normalizeFormSelectorKey(rawFormId.value)
+  if (selector) {
+    const matched = formEntries.value.find((entry) => entry.aliases.some((alias) => normalizeFormSelectorKey(alias) === selector))
     if (matched) {
       return matched
     }
   }
 
-  return pageData.value.entries[0] ?? null
+  return formEntries.value[0] ?? null
 })
 const pokemon = computed<PokemonDetail | null>(() => activeEntry.value?.pokemon ?? null)
+const displayPokemonName = computed(() => getLocalizedText(pokemon.value?.names, selectedLanguage.value, pokemon.value?.name) ?? pokemon.value?.name ?? '')
+const displayPokemonClassification = computed(() => getLocalizedText(pokemon.value?.classifications, selectedLanguage.value, pokemon.value?.classification ?? '不明') ?? pokemon.value?.classification ?? '不明')
+const previousPokemonName = computed(() => pageData.value.previousPokemon ? getLocalizedText(pageData.value.previousPokemon.names, selectedLanguage.value, pageData.value.previousPokemon.name) ?? pageData.value.previousPokemon.name : '')
+const nextPokemonName = computed(() => pageData.value.nextPokemon ? getLocalizedText(pageData.value.nextPokemon.names, selectedLanguage.value, pageData.value.nextPokemon.name) ?? pageData.value.nextPokemon.name : '')
 const currentDexLabel = computed(() => pageData.value.dex !== null ? formatPokemonNumber(pageData.value.dex) : '')
 const backPath = computed(() => `${appConfig.navigation.pokedex}/${pageData.value.areaSlug || appConfig.site.defaultArea}`)
 const isGlobalArea = computed(() => pageData.value.areaSlug === 'global')
@@ -353,8 +556,21 @@ const breadcrumbItems = computed(() => [
   { label: 'ホーム', to: appConfig.navigation.home },
   { label: 'ポケモン図鑑', to: appConfig.navigation.pokedex },
   { label: pageData.value.areaLabel, to: backPath.value },
-  { label: pokemon.value?.name ?? 'ポケモン詳細' }
+  { label: displayPokemonName.value || 'ポケモン詳細' }
 ])
+const debugPayload = computed(() => JSON.stringify({
+  route: {
+    params: route.params,
+    query: route.query,
+    hash: route.hash
+  },
+  pageData: pageData.value,
+  selectedLanguage: selectedLanguage.value,
+  activeFormSelector: rawFormId.value,
+  formEntries: formEntries.value,
+  activeEntry: activeEntry.value,
+  pokemon: pokemon.value
+}, null, 2))
 const descriptionHtml = computed(() => pokemon.value?.description?.replace(/\n/g, '<br>') ?? '')
 const descriptionText = computed(() => pokemon.value?.description
   ?.replace(/<rp>.*?<\/rp>/g, '')
@@ -448,13 +664,35 @@ const handleVersionIconError = (version: string) => {
   }
 }
 
+watch(
+  [selectedLanguage, () => activeEntry.value?.selector, () => pageData.value.dex, () => pageData.value.areaSlug],
+  async () => {
+    if (!import.meta.client || !pageData.value.ready || !pageData.value.dex || !activeEntry.value) {
+      return
+    }
+
+    const primaryEntryId = formEntries.value[0]?.id
+    const targetPath = buildPokemonDetailPath(
+      pageData.value.areaSlug,
+      pageData.value.dex,
+      activeEntry.value.id === primaryEntryId ? undefined : activeEntry.value.selector
+    )
+
+    if (route.fullPath !== targetPath) {
+      await navigateTo(targetPath, {
+        replace: true
+      })
+    }
+  }
+)
+
 watch(() => pokemon.value?.id, () => {
   pokemonImageVisible.value = true
   hiddenVersionIcons.value = {}
 })
 
 useSeoMeta({
-  title: () => pokemon.value ? `${pokemon.value.name} ${currentDexLabel.value}` : 'ポケモン詳細',
+  title: () => pokemon.value ? `${displayPokemonName.value} ${currentDexLabel.value}` : 'ポケモン詳細',
   description: () => descriptionText.value || '個別ポケモンデータを静的 JSON から読み込む詳細ページです。'
 })
 </script>
@@ -472,7 +710,7 @@ useSeoMeta({
             class="pill-link detail-nav__link"
           >
             <span class="detail-nav__eyebrow">前へ</span>
-            <strong>{{ pageData.previousPokemon.name }}</strong>
+            <strong>{{ previousPokemonName }}</strong>
           </NuxtLink>
         </div>
 
@@ -489,8 +727,29 @@ useSeoMeta({
             class="pill-link detail-nav__link"
           >
             <span class="detail-nav__eyebrow">次へ</span>
-            <strong>{{ pageData.nextPokemon.name }}</strong>
+            <strong>{{ nextPokemonName }}</strong>
           </NuxtLink>
+        </div>
+      </section>
+
+      <section v-if="availableLanguages.length > 0" class="surface section-card language-switcher">
+        <div class="section-header">
+          <div>
+            <span class="eyebrow">Language</span>
+          </div>
+        </div>
+
+        <div class="language-switcher__list">
+          <button
+            v-for="language in availableLanguages"
+            :key="language.key"
+            type="button"
+            class="pill-link language-switcher__button"
+            :class="{ 'pill-link--active': language.key === selectedLanguage }"
+            @click="selectedLanguage = language.key"
+          >
+            {{ language.label }}
+          </button>
         </div>
       </section>
 
@@ -504,13 +763,13 @@ useSeoMeta({
 
         <div class="form-switcher__list">
           <NuxtLink
-            v-for="entry in pageData.entries"
+            v-for="entry in formEntries"
             :key="entry.id"
             :to="entry.to"
             class="pill-link form-switcher__link"
             :class="{ 'pill-link--active': entry.id === activeEntry?.id }"
           >
-            <span>{{ entry.label }}</span>
+            <span>{{ entry.displayLabel }}</span>
             <strong>{{ entry.pokemon.types.join(' / ') || entry.id }}</strong>
           </NuxtLink>
         </div>
@@ -523,13 +782,13 @@ useSeoMeta({
             {{ currentDexLabel }}
           </p>
           <h1 class="hero__title hero__title--detail">
-            {{ pokemon.name }}
+            {{ displayPokemonName }}
           </h1>
           <p v-if="hasMultipleEntries" class="hero__description hero__description--tight">
-            {{ activeEntry?.label }}
+            {{ activeEntry?.displayLabel }}
           </p>
           <p class="hero__description">
-            {{ pokemon.classification ?? '分類情報は準備中です。' }}
+            {{ displayPokemonClassification }}
           </p>
           <div class="type-list">
             <span v-for="type in pokemon.types" :key="type" class="type-chip" :style="{ backgroundColor: getTypeColor(type) }">
@@ -542,7 +801,7 @@ useSeoMeta({
           <img
             v-if="pokemonImageVisible"
             :src="pokemonImagePath"
-            :alt="pokemon.name"
+            :alt="displayPokemonName"
             class="pokemon-hero__image"
             @error="pokemonImageVisible = false"
           >
@@ -563,11 +822,11 @@ useSeoMeta({
         </article>
         <article class="surface info-card">
           <span class="eyebrow">Classification</span>
-          <strong class="info-card__value info-card__value--small">{{ pokemon.classification ?? '不明' }}</strong>
+          <strong class="info-card__value info-card__value--small">{{ displayPokemonClassification }}</strong>
         </article>
         <article class="surface info-card">
           <span class="eyebrow">Forms</span>
-          <strong class="info-card__value info-card__value--small">{{ activeEntry?.label ?? '通常のみ' }}</strong>
+          <strong class="info-card__value info-card__value--small">{{ activeEntry?.displayLabel ?? '通常のみ' }}</strong>
         </article>
       </section>
 
@@ -636,6 +895,16 @@ useSeoMeta({
           </div>
         </div>
       </section>
+
+      <section v-if="isDebug" class="surface section-card">
+        <div class="section-header">
+          <div>
+            <span class="eyebrow">Debug</span>
+            <h2 class="section-title">取得JSON</h2>
+          </div>
+        </div>
+        <pre class="debug-json">{{ debugPayload }}</pre>
+      </section>
     </section>
 
     <section v-else class="empty-state surface">
@@ -699,16 +968,27 @@ useSeoMeta({
   min-width: 108px;
 }
 
+.language-switcher__list,
 .form-switcher__list {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
 }
 
+.language-switcher__button,
 .form-switcher__link {
   flex-direction: column;
   align-items: flex-start;
   gap: 0.2rem;
+}
+
+.debug-json {
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.85rem;
+  line-height: 1.5;
 }
 
 .global-description-list {
@@ -763,6 +1043,7 @@ useSeoMeta({
 
   .detail-nav__link,
   .detail-nav__top,
+  .language-switcher__button,
   .form-switcher__link {
     width: 100%;
   }

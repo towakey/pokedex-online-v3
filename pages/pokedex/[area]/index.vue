@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useSiteAppConfig } from '~/composables/useSiteAppConfig'
-import type { PokemonIndexItem, RegionEntry, RegionMeta } from '~/composables/usePokedex'
+import type { RegionEntry, RegionMeta, SearchIndexItem } from '~/composables/usePokedex'
 
-interface RegionPokemonItem extends PokemonIndexItem {
+type LocalizedTextMap = Record<string, string>
+
+interface RegionPokemonItem extends SearchIndexItem {
   localDex: number
+  detailPath?: string
 }
 
 interface RegionPageData {
@@ -34,10 +37,96 @@ const createDefaultRegionPageData = (slug: string): RegionPageData => ({
 const route = useRoute()
 const rawAreaSlug = computed(() => String(route.params.area ?? '').toLowerCase())
 const pokedexBasePath = computed(() => appConfig.navigation.pokedex)
-const { buildPokemonDetailPath, formatPokemonRouteId, loadIndex, loadRegion, loadRegions, normalizeRegionSlug } = usePokedex()
+const { buildPokemonDetailPath, formatPokemonRouteId, loadRegion, loadRegions, loadSearchIndex, normalizeRegionSlug } = usePokedex()
 const areaSlug = computed(() => normalizeRegionSlug(rawAreaSlug.value))
 const searchQuery = ref('')
 const selectedTypes = ref<string[]>([])
+const isDebug = computed(() => route.query.debug !== undefined)
+
+const normalizeLanguageKey = (value: string): string => String(value ?? '').trim().toLowerCase()
+const normalizeSelectorKey = (value: string): string => String(value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
+const hasLocalizedText = (value?: LocalizedTextMap): value is LocalizedTextMap => Boolean(value && Object.values(value).some((entry) => String(entry ?? '').trim()))
+const getLocalizedText = (value: LocalizedTextMap | undefined, fallback?: string): string | undefined => {
+  if (!value) {
+    return fallback
+  }
+
+  const normalizedValue = Object.fromEntries(
+    Object.entries(value).map(([key, entryValue]) => [normalizeLanguageKey(key), entryValue])
+  ) as LocalizedTextMap
+
+  return normalizedValue.jpn
+    ?? normalizedValue.ja
+    ?? normalizedValue.eng
+    ?? normalizedValue.en
+    ?? normalizedValue.default
+    ?? Object.values(normalizedValue).find((entryValue) => String(entryValue).trim())
+    ?? fallback
+}
+
+const createFormLabel = (pokemon: RegionPokemonItem, index: number, entryCount: number): string => {
+  if (hasLocalizedText(pokemon.forms)) {
+    return getLocalizedText(pokemon.forms, pokemon.name) ?? pokemon.name
+  }
+
+  if (hasLocalizedText(pokemon.names)) {
+    return getLocalizedText(pokemon.names, pokemon.name) ?? pokemon.name
+  }
+
+  const typeLabel = pokemon.types.filter(Boolean).join(' / ')
+  if (typeLabel) {
+    return typeLabel
+  }
+
+  return entryCount > 1 ? `フォーム ${index + 1}` : '通常'
+}
+
+const buildDetailPathMap = (items: RegionPokemonItem[], regionSlug: string): Map<string, string> => {
+  const detailPathMap = new Map<string, string>()
+  const groups = new Map<number, RegionPokemonItem[]>()
+
+  for (const item of items) {
+    const current = groups.get(item.localDex) ?? []
+    current.push(item)
+    groups.set(item.localDex, current)
+  }
+
+  for (const [localDex, entries] of groups.entries()) {
+    const sortedEntries = [...entries].sort((left, right) => left.localDex - right.localDex || left.dex - right.dex || left.id.localeCompare(right.id))
+    const labelCounts = new Map<string, number>()
+    const labels = sortedEntries.map((entry, index) => createFormLabel(entry, index, sortedEntries.length))
+
+    for (const label of labels) {
+      const normalizedLabel = normalizeSelectorKey(label)
+      if (!normalizedLabel) {
+        continue
+      }
+
+      labelCounts.set(normalizedLabel, (labelCounts.get(normalizedLabel) ?? 0) + 1)
+    }
+
+    const seenCounts = new Map<string, number>()
+    sortedEntries.forEach((entry, index) => {
+      const label = labels[index]
+      const normalizedLabel = normalizeSelectorKey(label)
+      const occurrence = normalizedLabel ? (seenCounts.get(normalizedLabel) ?? 0) + 1 : 1
+
+      if (normalizedLabel) {
+        seenCounts.set(normalizedLabel, occurrence)
+      }
+
+      const selector = index === 0
+        ? undefined
+        : normalizedLabel && (labelCounts.get(normalizedLabel) ?? 0) > 1
+          ? `${label}~${occurrence}`
+          : label
+
+      detailPathMap.set(entry.id, buildPokemonDetailPath(regionSlug, localDex, selector))
+    })
+  }
+
+  return detailPathMap
+}
 
 if (rawAreaSlug.value && rawAreaSlug.value !== areaSlug.value) {
   await navigateTo(`${pokedexBasePath.value}/${areaSlug.value}`, {
@@ -48,13 +137,13 @@ if (rawAreaSlug.value && rawAreaSlug.value !== areaSlug.value) {
 
 const { data } = await useAsyncData<RegionPageData>(() => `pokedex-region-${areaSlug.value}`, async () => {
   try {
-    const [entries, index, regions] = await Promise.all([
+    const [entries, searchIndex, regions] = await Promise.all([
       loadRegion(areaSlug.value),
-      loadIndex(),
+      loadSearchIndex(),
       loadRegions().catch(() => [] as RegionMeta[])
     ])
 
-    const pokemonMap = new Map<string, PokemonIndexItem>(index.map((pokemon: PokemonIndexItem) => [pokemon.id, pokemon] as [string, PokemonIndexItem]))
+    const pokemonMap = new Map<string, SearchIndexItem>(searchIndex.map((pokemon: SearchIndexItem) => [pokemon.id, pokemon] as [string, SearchIndexItem]))
     const items: RegionPokemonItem[] = entries
       .map((entry: RegionEntry) => {
         const pokemon = pokemonMap.get(entry.pokemon_id)
@@ -65,7 +154,9 @@ const { data } = await useAsyncData<RegionPageData>(() => `pokedex-region-${area
           dex: pokemon?.dex ?? entry.national_dex,
           name: pokemon?.name ?? `Pokemon ${entry.pokemon_id}`,
           types: pokemon?.types ?? [],
-          classification: pokemon?.classification
+          classification: pokemon?.classification,
+          names: pokemon?.names,
+          forms: pokemon?.forms
         }
       })
       .sort((left: RegionPokemonItem, right: RegionPokemonItem) => left.localDex - right.localDex || left.dex - right.dex || left.id.localeCompare(right.id))
@@ -92,16 +183,23 @@ const { data } = await useAsyncData<RegionPageData>(() => `pokedex-region-${area
 })
 
 const pageData = computed<RegionPageData>(() => data.value ?? createDefaultRegionPageData(areaSlug.value))
+const linkedItems = computed<RegionPokemonItem[]>(() => {
+  const pathMap = buildDetailPathMap(pageData.value.items, pageData.value.meta.slug)
+  return pageData.value.items.map((item) => ({
+    ...item,
+    detailPath: pathMap.get(item.id) ?? buildPokemonDetailPath(pageData.value.meta.slug, item.localDex)
+  }))
+})
 const breadcrumbItems = computed(() => [
   { label: 'ホーム', to: appConfig.navigation.home },
   { label: 'ポケモン図鑑', to: pokedexBasePath.value },
   { label: pageData.value.meta.label }
 ])
-const allTypes = computed(() => [...new Set(pageData.value.items.flatMap((item: RegionPokemonItem) => item.types))].sort((left, right) => left.localeCompare(right, 'ja')))
+const allTypes = computed(() => [...new Set(linkedItems.value.flatMap((item: RegionPokemonItem) => item.types))].sort((left, right) => left.localeCompare(right, 'ja')))
 const filteredItems = computed(() => {
   const query = searchQuery.value.trim().toLowerCase()
 
-  return pageData.value.items.filter((item: RegionPokemonItem) => {
+  return linkedItems.value.filter((item: RegionPokemonItem) => {
     const matchesQuery = !query
       || item.id.includes(query)
       || formatPokemonRouteId(item.id).includes(query)
@@ -128,6 +226,16 @@ const clearFilters = () => {
   searchQuery.value = ''
   selectedTypes.value = []
 }
+
+const debugPayload = computed(() => JSON.stringify({
+  area: areaSlug.value,
+  route: {
+    params: route.params,
+    query: route.query
+  },
+  pageData: pageData.value,
+  linkedItems: linkedItems.value
+}, null, 2))
 
 useSeoMeta({
   title: () => pageData.value.meta.label,
@@ -218,9 +326,30 @@ useSeoMeta({
           :key="`${pageData.meta.slug}-${pokemon.localDex}-${pokemon.id}`"
           :pokemon="pokemon"
           :subtitle="`図鑑No. ${String(pokemon.localDex).padStart(3, '0')}`"
-          :to="buildPokemonDetailPath(pageData.meta.slug, pokemon.localDex, pokemon.id)"
+          :to="pokemon.detailPath"
         />
       </div>
     </section>
+
+    <section v-if="isDebug" class="surface section-card">
+      <div class="section-header">
+        <div>
+          <span class="eyebrow">Debug</span>
+          <h2 class="section-title">取得JSON</h2>
+        </div>
+      </div>
+      <pre class="debug-json">{{ debugPayload }}</pre>
+    </section>
   </div>
 </template>
+
+<style scoped>
+.debug-json {
+  margin: 0;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+</style>

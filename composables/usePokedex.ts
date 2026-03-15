@@ -1,3 +1,5 @@
+type LocalizedTextMap = Record<string, string>
+
 export interface PokemonIndexItem {
   id: string
   dex: number
@@ -7,7 +9,8 @@ export interface PokemonIndexItem {
 }
 
 export interface SearchIndexItem extends PokemonIndexItem {
-  names?: Record<string, string>
+  names?: LocalizedTextMap
+  forms?: LocalizedTextMap
 }
 
 export interface PokemonDetail extends SearchIndexItem {
@@ -20,7 +23,8 @@ export interface PokemonDetail extends SearchIndexItem {
     description: string
   }>
   stats?: Partial<Record<'hp' | 'attack' | 'defense' | 'special_attack' | 'special_defense' | 'speed', number>>
-  forms?: string[]
+  forms?: LocalizedTextMap
+  classifications?: LocalizedTextMap
 }
 
 export interface RegionEntry {
@@ -157,11 +161,11 @@ export const usePokedex = () => {
   }
   const formatMeters = (value?: number) => value !== undefined ? `${value} m` : '不明'
   const formatKilograms = (value?: number) => value !== undefined ? `${value} kg` : '不明'
-  const buildPokemonDetailPath = (area: string, id: number | string, formId?: number | string) => {
+  const buildPokemonDetailPath = (area: string, id: number | string, formSelector?: number | string) => {
     const routeId = formatPokemonRouteId(id)
-    const normalizedFormId = formId !== undefined ? formatPokemonRouteId(formId) : ''
-    const hash = normalizedFormId && normalizedFormId.includes('_') && normalizedFormId !== routeId
-      ? `#form-${encodeURIComponent(normalizedFormId)}`
+    const normalizedFormSelector = String(formSelector ?? '').trim()
+    const hash = normalizedFormSelector && normalizedFormSelector !== routeId
+      ? `#form-${encodeURIComponent(normalizedFormSelector)}`
       : ''
 
     return getAppPath(`pokedex/${normalizeRegionSlug(area)}/${routeId}${hash}`)

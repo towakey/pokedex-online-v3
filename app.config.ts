@@ -2,7 +2,7 @@ export default defineAppConfig({
   site: {
     name: 'Pokédex-Online',
     description: 'ポケモン図鑑',
-    subtitle: 'Static Nuxt Edition',
+    subtitle: '',
     defaultArea: 'global'
   },
   pokedex: {

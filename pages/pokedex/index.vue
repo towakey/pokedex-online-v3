@@ -5,7 +5,6 @@ import type { RegionMeta } from '~/composables/usePokedex'
 
 interface PokedexTopPageData {
   ready: boolean
-  totalPokemon: number
   regions: RegionMeta[]
   message: string
 }
@@ -14,12 +13,11 @@ const appConfig = useSiteAppConfig()
 
 const createDefaultPageData = (): PokedexTopPageData => ({
   ready: false,
-  totalPokemon: 0,
   regions: [],
   message: ''
 })
 
-const { loadIndex, loadRegions } = usePokedex()
+const { loadRegions } = usePokedex()
 const defaultAreaPath = computed(() => `${appConfig.navigation.pokedex}/${appConfig.site.defaultArea}`)
 const breadcrumbItems = computed(() => [
   { label: 'ホーム', to: appConfig.navigation.home },
@@ -28,14 +26,10 @@ const breadcrumbItems = computed(() => [
 
 const { data } = await useAsyncData<PokedexTopPageData>('pokedex-top-page', async () => {
   try {
-    const [index, regions] = await Promise.all([
-      loadIndex(),
-      loadRegions().catch(() => [] as RegionMeta[])
-    ])
+    const regions = await loadRegions().catch(() => [] as RegionMeta[])
 
     return {
       ready: true,
-      totalPokemon: index.length,
       regions,
       message: ''
     }
@@ -75,17 +69,6 @@ useSeoMeta({
           </NuxtLink>
         </div>
       </div>
-    </section>
-
-    <section class="summary-grid">
-      <article class="metric-card surface">
-        <span class="eyebrow">収録ポケモン</span>
-        <strong class="metric-card__value">{{ pageData.totalPokemon.toLocaleString() }}</strong>
-      </article>
-      <article class="metric-card surface">
-        <span class="eyebrow">地域図鑑</span>
-        <strong class="metric-card__value">{{ pageData.regions.length.toLocaleString() }}</strong>
-      </article>
     </section>
 
     <section v-if="pageData.regions.length > 0" class="surface section-card">
