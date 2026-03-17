@@ -11,6 +11,7 @@ interface SiteAppConfig {
   navigation: {
     home: string
     pokedex: string
+    search: string
   }
 }
 

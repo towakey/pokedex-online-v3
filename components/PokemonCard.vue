@@ -55,7 +55,7 @@ watch(() => props.pokemon.id, () => {
           {{ pokemon.name }}
         </h3>
         <p class="pokemon-card__classification">
-          {{ pokemon.classification ?? '分類情報は準備中です。' }}
+          {{ pokemon.classification ?? '不明' }}
         </p>
       </div>
 
