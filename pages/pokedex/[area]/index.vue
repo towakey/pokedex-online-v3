@@ -259,6 +259,33 @@ useSeoMeta({
       </div>
     </section>
 
+    <section v-if="pageData.regions.length > 0" class="surface section-card">
+      <details class="region-list-card__details">
+        <summary class="region-list-card__summary">
+          <div>
+            <span class="eyebrow">Region Dex</span>
+            <h2 class="section-title">図鑑一覧</h2>
+          </div>
+          <p class="region-list-card__summary-text">
+            {{ pageData.meta.label }}を表示中
+          </p>
+        </summary>
+
+        <div class="region-list-card__track">
+          <NuxtLink
+            v-for="region in pageData.regions"
+            :key="region.slug"
+            :to="`${pokedexBasePath}/${region.slug}`"
+            class="pill-link region-list-card__link"
+            :class="{ 'pill-link--active': region.slug === pageData.meta.slug }"
+          >
+            <span>{{ region.label }}</span>
+            <strong>{{ region.count }}</strong>
+          </NuxtLink>
+        </div>
+      </details>
+    </section>
+
     <section v-if="pageData.ready" class="filter-card">
       <div class="filter-card__header">
         <div>
@@ -283,21 +310,6 @@ useSeoMeta({
         >
           {{ type }}
         </button>
-      </div>
-    </section>
-
-    <section v-if="pageData.regions.length > 0" class="surface section-card">
-      <div class="pill-row">
-        <NuxtLink
-          v-for="region in pageData.regions"
-          :key="region.slug"
-          :to="`${pokedexBasePath}/${region.slug}`"
-          class="pill-link"
-          :class="{ 'pill-link--active': region.slug === pageData.meta.slug }"
-        >
-          <span>{{ region.label }}</span>
-          <strong>{{ region.count }}</strong>
-        </NuxtLink>
       </div>
     </section>
 
@@ -344,6 +356,64 @@ useSeoMeta({
 </template>
 
 <style scoped>
+.region-list-card__details {
+  display: grid;
+  gap: 1rem;
+}
+
+.region-list-card__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.region-list-card__summary::-webkit-details-marker {
+  display: none;
+}
+
+.region-list-card__summary::marker {
+  content: '';
+}
+
+.region-list-card__summary::after {
+  content: '開く';
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  background: var(--surface-soft);
+  color: var(--text-soft);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.region-list-card__details[open] .region-list-card__summary::after {
+  content: '閉じる';
+}
+
+.region-list-card__summary-text {
+  margin: 0;
+  color: var(--text-soft);
+  line-height: 1.5;
+  text-align: right;
+}
+
+.region-list-card__track {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.region-list-card__link {
+  min-width: 0;
+}
+
 .debug-json {
   margin: 0;
   overflow-x: auto;
@@ -351,5 +421,16 @@ useSeoMeta({
   word-break: break-word;
   font-size: 0.85rem;
   line-height: 1.5;
+}
+
+@media (max-width: 720px) {
+  .region-list-card__summary {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .region-list-card__summary-text {
+    text-align: left;
+  }
 }
 </style>

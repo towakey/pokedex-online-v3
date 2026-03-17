@@ -178,21 +178,6 @@ const filteredItems = computed<HomePokemonItem[]>(() => {
 const visibleItems = computed(() => filteredItems.value.slice(0, visibleCount.value))
 const canLoadMore = computed(() => visibleItems.value.length < filteredItems.value.length)
 
-const summaryItems = computed(() => ([
-  {
-    label: '収録ポケモン',
-    value: pageData.value.searchIndex.length.toLocaleString()
-  },
-  {
-    label: '検索結果',
-    value: filteredItems.value.length.toLocaleString()
-  },
-  {
-    label: '地域図鑑',
-    value: pageData.value.regions.length.toLocaleString()
-  }
-]))
-
 watch(searchQuery, () => {
   visibleCount.value = 24
 })
@@ -218,10 +203,10 @@ useSeoMeta({
       <div class="hero__content">
         <span class="eyebrow">Static-first Pokédex</span>
         <h1 class="hero__title">
-          参照実装に寄せた静的ポケモン図鑑
+          Pokédex-Online
         </h1>
         <p class="hero__description">
-          現行の Deno 版リポジトリ構成を参考にしながら、静的 JSON 読み込み中心の Nuxt 構成へ整理しています。
+          
         </p>
         <div class="pill-row">
           <NuxtLink :to="pokedexTopPath" class="pill-link">
@@ -239,13 +224,6 @@ useSeoMeta({
           名前、図鑑番号、タイプで絞り込めます。
         </p>
       </div>
-    </section>
-
-    <section class="summary-grid">
-      <article v-for="item in summaryItems" :key="item.label" class="metric-card surface">
-        <span class="eyebrow">{{ item.label }}</span>
-        <strong class="metric-card__value">{{ item.value }}</strong>
-      </article>
     </section>
 
     <section v-if="pageData.regions.length > 0" class="surface section-card">

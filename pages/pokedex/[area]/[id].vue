@@ -26,6 +26,7 @@ interface FormEntryView extends PokemonPageEntry {
   displayLabel: string
   labelMap: LocalizedTextMap
   selector: string
+  typeLabel: string
   to: string
 }
 
@@ -50,6 +51,8 @@ interface GlobalDescriptionEntry {
   version: string
   label: string
   description: string
+  descriptions?: LocalizedTextMap
+  versionCode?: string
 }
 
 interface GlobalDescriptionGroupVersion {
@@ -192,6 +195,19 @@ const getLanguageCandidates = (languageKey: string): string[] => {
   ])
 }
 
+const getSelectedLanguageCandidates = (languageKey: string): string[] => {
+  const normalizedLanguageKey = normalizeLanguageKey(languageKey)
+  const option = LANGUAGE_OPTIONS.find((entry) => entry.key === normalizedLanguageKey || entry.aliases?.includes(normalizedLanguageKey))
+
+  return uniqueStrings([
+    normalizedLanguageKey,
+    option?.key,
+    ...(option?.aliases ?? []),
+    normalizedLanguageKey === 'jpn' ? 'ja' : '',
+    normalizedLanguageKey === 'eng' ? 'en' : ''
+  ])
+}
+
 const getLocalizedText = (value: LocalizedTextMap | undefined, languageKey: string, fallback?: string): string | undefined => {
   if (!value) {
     return fallback
@@ -209,6 +225,25 @@ const getLocalizedText = (value: LocalizedTextMap | undefined, languageKey: stri
   }
 
   return Object.values(normalizedValue).find((entryValue) => String(entryValue).trim()) ?? fallback
+}
+
+const getSelectedLanguageText = (value: LocalizedTextMap | undefined, languageKey: string): string | undefined => {
+  if (!value) {
+    return undefined
+  }
+
+  const normalizedValue = Object.fromEntries(
+    Object.entries(value).map(([key, entryValue]) => [normalizeLanguageKey(key), entryValue])
+  ) as LocalizedTextMap
+
+  for (const candidate of getSelectedLanguageCandidates(languageKey)) {
+    const matched = normalizedValue[candidate]
+    if (matched) {
+      return matched
+    }
+  }
+
+  return undefined
 }
 
 const createStaticLocalizedMap = (value: string): LocalizedTextMap => ({
@@ -516,6 +551,7 @@ const formEntries = computed<FormEntryView[]>(() => {
     const selectorMap = selectorMaps[index]
     const displayLabel = getLocalizedText(labelMap, selectedLanguage.value, getLocalizedText(labelMap, 'default', entry.pokemon.name)) ?? entry.pokemon.name
     const selector = getLocalizedText(selectorMap, selectedLanguage.value, getLocalizedText(selectorMap, 'default', displayLabel)) ?? displayLabel
+    const typeLabel = entry.pokemon.types.join(' / ') || 'タイプ 不明'
 
     return {
       ...entry,
@@ -527,6 +563,7 @@ const formEntries = computed<FormEntryView[]>(() => {
       displayLabel,
       labelMap,
       selector,
+      typeLabel,
       to: buildPokemonDetailPath(pageData.value.areaSlug, entry.localDex, index === 0 ? undefined : selector)
     }
   })
@@ -579,12 +616,14 @@ const descriptionText = computed(() => pokemon.value?.description
   .replace(/\s+/g, ' ')
   .trim() ?? '')
 const globalDescriptionItems = computed<GlobalDescriptionEntry[]>(() => (pokemon.value?.globalDescriptions ?? [])
-  .filter((entry): entry is GlobalDescriptionEntry => Boolean(entry?.description?.trim()))
   .map((entry) => ({
     version: entry.version,
     label: entry.label,
-    description: entry.description
-  })))
+    description: getSelectedLanguageText(entry.descriptions, selectedLanguage.value) ?? 'No date',
+    descriptions: entry.descriptions,
+    versionCode: entry.versionCode
+  }))
+  .filter((entry): entry is GlobalDescriptionEntry => Boolean(entry?.description?.trim())))
 const globalDescriptionGroups = computed<GlobalDescriptionGroup[]>(() => {
   const groups = new Map<string, {
     description: string
@@ -709,7 +748,6 @@ useSeoMeta({
             :to="pageData.previousPokemon.to"
             class="pill-link detail-nav__link"
           >
-            <span class="detail-nav__eyebrow">前へ</span>
             <strong>{{ previousPokemonName }}</strong>
           </NuxtLink>
         </div>
@@ -726,7 +764,6 @@ useSeoMeta({
             :to="pageData.nextPokemon.to"
             class="pill-link detail-nav__link"
           >
-            <span class="detail-nav__eyebrow">次へ</span>
             <strong>{{ nextPokemonName }}</strong>
           </NuxtLink>
         </div>
@@ -770,7 +807,7 @@ useSeoMeta({
             :class="{ 'pill-link--active': entry.id === activeEntry?.id }"
           >
             <span>{{ entry.displayLabel }}</span>
-            <strong>{{ entry.pokemon.types.join(' / ') || entry.id }}</strong>
+            <strong>{{ entry.typeLabel }}</strong>
           </NuxtLink>
         </div>
       </section>
@@ -944,11 +981,12 @@ useSeoMeta({
 
 .detail-nav__link {
   flex-direction: column;
-  align-items: flex-start;
-  gap: 0.2rem;
+  align-items: center;
+  justify-content: center;
   min-width: min(100%, 220px);
   max-width: 100%;
   padding: 0.85rem 1rem;
+  text-align: center;
 }
 
 .detail-nav__link strong {
@@ -956,12 +994,7 @@ useSeoMeta({
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-}
-
-.detail-nav__eyebrow {
-  color: var(--text-soft);
-  font-size: 0.72rem;
-  font-weight: 700;
+  text-align: center;
 }
 
 .detail-nav__top {
@@ -975,7 +1008,13 @@ useSeoMeta({
   gap: 0.75rem;
 }
 
-.language-switcher__button,
+.language-switcher__button {
+  align-items: center;
+  justify-content: center;
+  min-height: 42px;
+  text-align: center;
+}
+
 .form-switcher__link {
   flex-direction: column;
   align-items: flex-start;

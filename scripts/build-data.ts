@@ -24,6 +24,8 @@ interface PokemonRecord {
     version: string
     label: string
     description: string
+    descriptions?: Record<string, string>
+    versionCode?: string
   }>
   stats?: Partial<Record<StatKey, number>>
   forms?: Record<string, string>
@@ -78,7 +80,7 @@ const regionOutputDir = resolve(outputDir, 'region')
 const sourcePokedexDir = resolve(sourceDir, 'pokedex')
 const sourceConfigPath = resolve(sourceDir, 'config', 'pokedex_config.json')
 const sourceGlobalPokedexPath = resolve(sourcePokedexDir, 'pokedex.json')
-const sourceDescriptionPath = resolve(sourcePokedexDir, 'description.json')
+const sourceDescriptionPath = resolve(sourcePokedexDir, 'description_map.json')
 
 interface RegionConfig {
   display_jpn: string
@@ -218,14 +220,14 @@ const isUsableDescription = (value: string | undefined): value is string => {
   return !['じょうほう なし', 'null', 'undefined'].includes(normalized.toLowerCase())
 }
 
-const createVersionDisplayMap = (value: JsonValue | undefined): Map<string, { label: string; order: number }> => {
-  const versionMap = new Map<string, { label: string; order: number }>()
+const createVersionDisplayMap = (value: JsonValue | undefined): Map<string, { version: string; label: string; order: number }> => {
+  const versionMap = new Map<string, { version: string; label: string; order: number }>()
 
   if (!isRecord(value)) {
     return versionMap
   }
 
-  Object.values(value).forEach((entryValue, index) => {
+  Object.entries(value).forEach(([code, entryValue], index) => {
     if (!isRecord(entryValue)) {
       return
     }
@@ -236,7 +238,8 @@ const createVersionDisplayMap = (value: JsonValue | undefined): Map<string, { la
       return
     }
 
-    versionMap.set(versionKey, {
+    versionMap.set(code, {
+      version: versionKey,
       label: toStringValue(versionEntry.name_jpn) ?? normalizeVersionLabel(versionKey),
       order: index
     })
@@ -247,38 +250,77 @@ const createVersionDisplayMap = (value: JsonValue | undefined): Map<string, { la
 
 const createGlobalDescriptionEntries = (
   value: JsonValue | undefined,
-  versionDisplayMap: Map<string, { label: string; order: number }>
-): Array<{ version: string; label: string; description: string }> => {
+  versionDisplayMap: Map<string, { version: string; label: string; order: number }>
+): Array<{ version: string; label: string; description: string; descriptions?: Record<string, string>; versionCode?: string }> => {
   if (!isRecord(value)) {
     return []
   }
 
-  const ignoredKeys = new Set(['globalNo', 'form', 'region', 'mega_evolution', 'gigantamax'])
-
   return Object.entries(value)
-    .filter(([key]) => !ignoredKeys.has(key))
-    .map(([key, entryValue], index) => {
-      const description = toStringValue(entryValue)
+    .flatMap(([key, entryValue], index) => {
+      const descriptions = normalizeLocalizedMap(entryValue)
+      const description = pickFirstString(
+        descriptions?.jpn,
+        descriptions?.ja,
+        descriptions?.eng,
+        descriptions?.en,
+        descriptions?.default
+      ) ?? Object.values(descriptions ?? {}).find((entryValue) => isUsableDescription(entryValue))
+
       if (!isUsableDescription(description)) {
-        return undefined
+        return []
       }
 
-      const versionMeta = versionDisplayMap.get(key)
+      return key
+        .split(',')
+        .map((entry) => entry.trim())
+        .filter(Boolean)
+        .map((versionCode, versionIndex) => {
+          const versionMeta = versionDisplayMap.get(versionCode)
 
-      return {
-        version: key,
-        label: versionMeta?.label ?? normalizeVersionLabel(key),
-        description,
-        order: versionMeta?.order ?? 1000 + index
-      }
+          return {
+            version: versionMeta?.version ?? versionCode,
+            label: versionMeta?.label ?? versionCode,
+            description,
+            descriptions,
+            versionCode,
+            order: versionMeta?.order ?? (1000 + index * 100 + versionIndex)
+          }
+        })
     })
-    .filter((entry): entry is { version: string; label: string; description: string; order: number } => Boolean(entry))
+    .filter((entry): entry is { version: string; label: string; description: string; descriptions?: Record<string, string>; versionCode?: string; order: number } => Boolean(entry))
     .sort((left, right) => left.order - right.order || left.version.localeCompare(right.version))
-    .map(({ version, label, description }) => ({
+    .map(({ version, label, description, descriptions, versionCode }) => ({
       version,
       label,
-      description
+      description,
+      descriptions,
+      versionCode
     }))
+}
+
+const createDescriptionMapIndex = (value: JsonValue | undefined): Map<string, JsonRecord> => {
+  const descriptionMapIndex = new Map<string, JsonRecord>()
+
+  if (!isRecord(value)) {
+    return descriptionMapIndex
+  }
+
+  for (const formsValue of Object.values(value)) {
+    if (!isRecord(formsValue)) {
+      continue
+    }
+
+    for (const [pokemonId, descriptionValue] of Object.entries(formsValue)) {
+      if (!isRecord(descriptionValue)) {
+        continue
+      }
+
+      descriptionMapIndex.set(pokemonId, descriptionValue)
+    }
+  }
+
+  return descriptionMapIndex
 }
 
 const createPokemonBaseRecord = (id: string, dex: number, entryMap: Record<string, JsonRecord>): PokemonRecord => {
@@ -744,7 +786,7 @@ if (!existsSync(sourceConfigPath)) {
 }
 
 if (!existsSync(sourceDescriptionPath)) {
-  throw new Error('The pokedex description JSON was not found in the expected location.')
+  throw new Error('The pokedex description_map JSON was not found in the expected location.')
 }
 
 rmSync(outputDir, { recursive: true, force: true })
@@ -755,7 +797,7 @@ const globalSource = readJsonFile<JsonRecord>(sourceGlobalPokedexPath)
 const configSource = readJsonFile<JsonRecord>(sourceConfigPath) as JsonRecord & RegionConfigFile
 const descriptionSource = readJsonFile<JsonRecord>(sourceDescriptionPath)
 const globalPokedex = toRecordMap(globalSource.pokedex)
-const globalDescriptionMap = toRecordMap(descriptionSource.description)
+const globalDescriptionMap = createDescriptionMapIndex(descriptionSource.data)
 const configuredRegions = configSource.regions && typeof configSource.regions === 'object' && !Array.isArray(configSource.regions)
   ? configSource.regions as Record<string, RegionConfig>
   : {}
@@ -787,7 +829,7 @@ for (const [globalNo, formsValue] of Object.entries(globalPokedex)) {
   }
 
   for (const [pokemonId, pokemonEntry] of Object.entries(formMap)) {
-    const globalDescriptions = createGlobalDescriptionEntries(globalDescriptionMap[pokemonId], versionDisplayMap)
+    const globalDescriptions = createGlobalDescriptionEntries(globalDescriptionMap.get(pokemonId), versionDisplayMap)
     const baseRecord = createPokemonBaseRecord(pokemonId, dexNumber, { [pokemonId]: pokemonEntry })
 
     pokemonMap.set(pokemonId, {

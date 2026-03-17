@@ -15,6 +15,10 @@ const primaryItems = [
   {
     label: 'ポケモン図鑑',
     to: appConfig.navigation.pokedex
+  },
+  {
+    label: '検索',
+    to: appConfig.navigation.search
   }
 ]
 
