@@ -42,16 +42,18 @@ const sharePage = async () => {
   <header class="app-bar">
     <div class="container app-bar__inner">
       <div class="app-bar__start">
-        <button type="button" class="icon-button icon-button--nav" aria-label="メニューを開く" @click="openDrawer">
-          ☰
-        </button>
-        <NuxtLink :to="appConfig.navigation.home" class="brand-link brand-link--light">
-          <span class="brand-link__mark">Dex</span>
-          <span class="brand-link__text">
+        <button type="button" class="brand-menu-button" aria-label="メニューを開く" @click="openDrawer">
+          <img src="/icon.png" alt="" class="brand-menu-button__icon">
+          <span class="brand-menu-button__text">
             <strong>{{ appConfig.site.name }}</strong>
-            <small>{{ appConfig.site.subtitle }}</small>
+            <!-- <small>{{ appConfig.site.subtitle || appConfig.site.description }}</small> -->
           </span>
-        </NuxtLink>
+          <!-- <span class="brand-menu-button__hamburger" aria-hidden="true"> -->
+            <!-- <span /> -->
+            <!-- <span /> -->
+            <!-- <span /> -->
+          <!-- </span> -->
+        </button>
       </div>
 
       <nav class="app-nav app-nav--desktop">

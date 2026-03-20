@@ -78,6 +78,9 @@ const createPrerenderRoutes = () => {
 export default defineNuxtConfig({
   compatibilityDate: '2024-12-01',
   devtools: { enabled: true },
+  experimental: {
+    appManifest: false
+  },
   ssr: true,
   runtimeConfig: {
     public: {

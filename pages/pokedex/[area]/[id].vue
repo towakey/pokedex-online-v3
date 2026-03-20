@@ -59,6 +59,7 @@ interface GlobalDescriptionGroupVersion {
   version: string
   label: string
   iconPath: string
+  versionCode?: string
 }
 
 interface GlobalDescriptionGroup {
@@ -110,6 +111,12 @@ const normalizeVersionAssetKey = (value: string): string => {
     .toLowerCase()
 }
 
+const normalizeVersionCode = (value?: string): string => {
+  return String(value ?? '')
+    .trim()
+    .replace(/^v/i, '')
+}
+
 const normalizeDescriptionGroupKey = (value: string): string => {
   return value
     .replace(/<rp>.*?<\/rp>/g, '')
@@ -119,13 +126,13 @@ const normalizeDescriptionGroupKey = (value: string): string => {
     .trim()
 }
 
-const getPokedexVersionIconPath = (version: string): string => {
-  const normalizedVersion = normalizeVersionAssetKey(version)
-  if (!normalizedVersion) {
+const getPokedexVersionIconPath = (versionCode?: string): string => {
+  const normalizedVersionCode = normalizeVersionCode(versionCode)
+  if (!normalizedVersionCode) {
     return ''
   }
 
-  return buildAssetPath(`${appConfig.pokedex.versionIconBasePath}/${normalizedVersion}.png`)
+  return buildAssetPath(`${appConfig.pokedex.versionIconBasePath}/v${normalizedVersionCode}.png`)
 }
 
 const LANGUAGE_OPTIONS: LanguageOption[] = [
@@ -637,11 +644,12 @@ const globalDescriptionGroups = computed<GlobalDescriptionGroup[]>(() => {
       continue
     }
 
-    const normalizedVersionKey = normalizeVersionAssetKey(entry.version)
+    const normalizedVersionKey = normalizeVersionCode(entry.versionCode) || normalizeVersionAssetKey(entry.version)
     const nextVersion: GlobalDescriptionGroupVersion = {
       version: entry.version,
       label: entry.label,
-      iconPath: getPokedexVersionIconPath(entry.version)
+      iconPath: getPokedexVersionIconPath(entry.versionCode),
+      versionCode: entry.versionCode
     }
     const current = groups.get(groupKey)
 
@@ -686,13 +694,13 @@ const statEntries = computed<StatEntry[]>(() => {
 })
 const maxStat = computed<number>(() => Math.max(...statEntries.value.map((entry: StatEntry) => entry.value), 0))
 
-const isVersionIconVisible = (version: string): boolean => {
-  const iconKey = normalizeVersionAssetKey(version)
+const isVersionIconVisible = (versionCode?: string, version?: string): boolean => {
+  const iconKey = normalizeVersionCode(versionCode) || normalizeVersionAssetKey(String(version ?? ''))
   return Boolean(iconKey) && hiddenVersionIcons.value[iconKey] !== true
 }
 
-const handleVersionIconError = (version: string) => {
-  const iconKey = normalizeVersionAssetKey(version)
+const handleVersionIconError = (versionCode?: string, version?: string) => {
+  const iconKey = normalizeVersionCode(versionCode) || normalizeVersionAssetKey(String(version ?? ''))
   if (!iconKey || hiddenVersionIcons.value[iconKey]) {
     return
   }
@@ -888,11 +896,11 @@ useSeoMeta({
                 :title="versionEntry.version"
               >
                 <img
-                  v-if="isVersionIconVisible(versionEntry.version)"
+                  v-if="isVersionIconVisible(versionEntry.versionCode, versionEntry.version)"
                   :src="versionEntry.iconPath"
                   :alt="versionEntry.label"
                   class="global-description-card__icon"
-                  @error="handleVersionIconError(versionEntry.version)"
+                  @error="handleVersionIconError(versionEntry.versionCode, versionEntry.version)"
                 >
                 <span class="global-description-card__label">{{ versionEntry.label }}</span>
               </span>

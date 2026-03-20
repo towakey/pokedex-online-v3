@@ -201,7 +201,7 @@ useSeoMeta({
   <div class="container page-stack">
     <section class="hero surface">
       <div class="hero__content">
-        <span class="eyebrow">Static-first Pokédex</span>
+        <span class="eyebrow"></span>
         <h1 class="hero__title">
           Pokédex-Online
         </h1>
