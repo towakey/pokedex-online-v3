@@ -47,7 +47,7 @@ const closeDrawer = () => {
   <aside class="app-drawer" :class="{ 'app-drawer--open': drawerOpen }" aria-label="サイドメニュー">
     <div class="app-drawer__header">
       <div class="app-drawer__brand">
-        <span class="brand-link__mark brand-link__mark--drawer">Dex</span>
+        <img src="/icon.png" alt="" class="brand-link__icon brand-link__icon--drawer">
         <div class="app-drawer__brand-text">
           <strong>{{ appConfig.site.name }}</strong>
           <small>{{ appConfig.site.description }}</small>
