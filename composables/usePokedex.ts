@@ -23,6 +23,11 @@ export interface PokemonDetail extends SearchIndexItem {
     description: string
     descriptions?: LocalizedTextMap
     versionCode?: string
+    regionLinks?: Array<{
+      regionSlug: string
+      regionDex: number
+      regionLabel: string
+    }>
   }>
   stats?: Partial<Record<'hp' | 'attack' | 'defense' | 'special_attack' | 'special_defense' | 'speed', number>>
   forms?: LocalizedTextMap

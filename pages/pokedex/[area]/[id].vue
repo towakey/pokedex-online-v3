@@ -50,16 +50,31 @@ interface StatEntry {
 interface GlobalDescriptionEntry {
   version: string
   label: string
+  groupDescription: string
   description: string
   descriptions?: LocalizedTextMap
   versionCode?: string
+  regionLinks?: Array<{
+    regionSlug: string
+    regionDex: number
+    regionLabel: string
+  }>
 }
 
 interface GlobalDescriptionGroupVersion {
+  key: string
   version: string
   label: string
+  description: string
+  html: string
   iconPath: string
   versionCode?: string
+  regionLinks: Array<{
+    key: string
+    label: string
+    dex: number
+    to: string
+  }>
 }
 
 interface GlobalDescriptionGroup {
@@ -244,6 +259,71 @@ const getSelectedLanguageText = (value: LocalizedTextMap | undefined, languageKe
   ) as LocalizedTextMap
 
   for (const candidate of getSelectedLanguageCandidates(languageKey)) {
+    const matched = normalizedValue[candidate]
+    if (matched) {
+      return matched
+    }
+  }
+
+  return undefined
+}
+
+const getPokedexVersionGeneration = (versionCode?: string): number | undefined => {
+  const match = String(versionCode ?? '').match(/^(\d{2})_/)
+  if (!match) {
+    return undefined
+  }
+
+  const parsed = Number(match[1])
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+const isKanaOnlyPokedexVersion = (versionCode?: string): boolean => {
+  const generation = getPokedexVersionGeneration(versionCode)
+  return generation !== undefined && generation <= 4
+}
+
+const getSelectedPokedexGroupText = (value: LocalizedTextMap | undefined, languageKey: string): string | undefined => {
+  if (!value) {
+    return undefined
+  }
+
+  const normalizedValue = Object.fromEntries(
+    Object.entries(value).map(([key, entryValue]) => [normalizeLanguageKey(key), entryValue])
+  ) as LocalizedTextMap
+
+  const normalizedLanguageKey = normalizeLanguageKey(languageKey)
+  const preferredCandidates = normalizedLanguageKey === 'jpn'
+    ? ['jpn', 'ja', 'jpn_kanji', 'ja_kanji', 'jpn_kana', 'ja_kana', 'kana', 'hiragana']
+    : getSelectedLanguageCandidates(languageKey)
+
+  for (const candidate of uniqueStrings(preferredCandidates)) {
+    const matched = normalizedValue[candidate]
+    if (matched) {
+      return matched
+    }
+  }
+
+  return undefined
+}
+
+const getSelectedPokedexDescriptionText = (value: LocalizedTextMap | undefined, languageKey: string, versionCode?: string): string | undefined => {
+  if (!value) {
+    return undefined
+  }
+
+  const normalizedValue = Object.fromEntries(
+    Object.entries(value).map(([key, entryValue]) => [normalizeLanguageKey(key), entryValue])
+  ) as LocalizedTextMap
+
+  const normalizedLanguageKey = normalizeLanguageKey(languageKey)
+  const preferredCandidates = normalizedLanguageKey === 'jpn'
+    ? (isKanaOnlyPokedexVersion(versionCode)
+      ? ['jpn_kana', 'ja_kana', 'kana', 'hiragana', 'jpn', 'ja', 'jpn_kanji', 'ja_kanji']
+      : ['jpn', 'ja', 'jpn_kanji', 'ja_kanji', 'jpn_kana', 'ja_kana', 'kana', 'hiragana'])
+    : getSelectedLanguageCandidates(languageKey)
+
+  for (const candidate of uniqueStrings(preferredCandidates)) {
     const matched = normalizedValue[candidate]
     if (matched) {
       return matched
@@ -596,6 +676,7 @@ const currentDexLabel = computed(() => pageData.value.dex !== null ? formatPokem
 const backPath = computed(() => `${appConfig.navigation.pokedex}/${pageData.value.areaSlug || appConfig.site.defaultArea}`)
 const isGlobalArea = computed(() => pageData.value.areaSlug === 'global')
 const hasMultipleEntries = computed(() => pageData.value.entries.length > 1)
+const expandedGlobalDescriptionKeys = ref<string[]>([])
 const breadcrumbItems = computed(() => [
   { label: 'ホーム', to: appConfig.navigation.home },
   { label: 'ポケモン図鑑', to: appConfig.navigation.pokedex },
@@ -626,37 +707,51 @@ const globalDescriptionItems = computed<GlobalDescriptionEntry[]>(() => (pokemon
   .map((entry) => ({
     version: entry.version,
     label: entry.label,
-    description: getSelectedLanguageText(entry.descriptions, selectedLanguage.value) ?? 'No date',
+    groupDescription: getSelectedPokedexGroupText(entry.descriptions, selectedLanguage.value)
+      ?? getSelectedLanguageText(entry.descriptions, selectedLanguage.value)
+      ?? 'No data',
+    description: getSelectedPokedexDescriptionText(entry.descriptions, selectedLanguage.value, entry.versionCode)
+      ?? getSelectedPokedexGroupText(entry.descriptions, selectedLanguage.value)
+      ?? 'No data',
     descriptions: entry.descriptions,
-    versionCode: entry.versionCode
+    versionCode: entry.versionCode,
+    regionLinks: entry.regionLinks
   }))
-  .filter((entry): entry is GlobalDescriptionEntry => Boolean(entry?.description?.trim())))
+  .filter((entry) => Boolean(entry.description.trim())))
 const globalDescriptionGroups = computed<GlobalDescriptionGroup[]>(() => {
   const groups = new Map<string, {
     description: string
     versions: GlobalDescriptionGroupVersion[]
     versionKeys: Set<string>
   }>()
-
   for (const entry of globalDescriptionItems.value) {
-    const groupKey = normalizeDescriptionGroupKey(entry.description)
+    const groupKey = normalizeDescriptionGroupKey(entry.groupDescription)
     if (!groupKey) {
       continue
     }
 
     const normalizedVersionKey = normalizeVersionCode(entry.versionCode) || normalizeVersionAssetKey(entry.version)
-    const nextVersion: GlobalDescriptionGroupVersion = {
+    const versionEntry: GlobalDescriptionGroupVersion = {
+      key: [groupKey, normalizedVersionKey || entry.version, entry.label].filter(Boolean).join('::'),
       version: entry.version,
       label: entry.label,
+      description: entry.description,
+      html: entry.description.replace(/\n/g, '<br>'),
       iconPath: getPokedexVersionIconPath(entry.versionCode),
-      versionCode: entry.versionCode
+      versionCode: entry.versionCode,
+      regionLinks: (entry.regionLinks ?? []).map((regionLink) => ({
+        key: `${regionLink.regionSlug}:${regionLink.regionDex}`,
+        label: regionLink.regionLabel,
+        dex: regionLink.regionDex,
+        to: buildPokemonDetailPath(regionLink.regionSlug, regionLink.regionDex)
+      }))
     }
     const current = groups.get(groupKey)
 
     if (!current) {
       groups.set(groupKey, {
-        description: entry.description,
-        versions: [nextVersion],
+        description: entry.groupDescription,
+        versions: [versionEntry],
         versionKeys: new Set(normalizedVersionKey ? [normalizedVersionKey] : [])
       })
       continue
@@ -666,11 +761,10 @@ const globalDescriptionGroups = computed<GlobalDescriptionGroup[]>(() => {
       if (normalizedVersionKey) {
         current.versionKeys.add(normalizedVersionKey)
       }
-
-      current.versions.push(nextVersion)
+      current.versions.push(versionEntry)
     }
   }
-
+ 
   return [...groups.entries()].map(([groupKey, group]) => ({
     key: groupKey,
     description: group.description,
@@ -711,6 +805,15 @@ const handleVersionIconError = (versionCode?: string, version?: string) => {
   }
 }
 
+const toggleGlobalDescriptionGroup = (groupKey: string) => {
+  if (expandedGlobalDescriptionKeys.value.includes(groupKey)) {
+    expandedGlobalDescriptionKeys.value = expandedGlobalDescriptionKeys.value.filter((key) => key !== groupKey)
+    return
+  }
+
+  expandedGlobalDescriptionKeys.value = [...expandedGlobalDescriptionKeys.value, groupKey]
+}
+
 watch(
   [selectedLanguage, () => activeEntry.value?.selector, () => pageData.value.dex, () => pageData.value.areaSlug],
   async () => {
@@ -736,12 +839,23 @@ watch(
 watch(() => pokemon.value?.id, () => {
   pokemonImageVisible.value = true
   hiddenVersionIcons.value = {}
+  expandedGlobalDescriptionKeys.value = []
 })
+
+watch(globalDescriptionGroups, (groups) => {
+  if (groups.length === 0) {
+    expandedGlobalDescriptionKeys.value = []
+    return
+  }
+
+  expandedGlobalDescriptionKeys.value = expandedGlobalDescriptionKeys.value.filter((groupKey) => groups.some((group) => group.key === groupKey))
+}, { immediate: true })
 
 useSeoMeta({
   title: () => pokemon.value ? `${displayPokemonName.value} ${currentDexLabel.value}` : 'ポケモン詳細',
   description: () => descriptionText.value || '個別ポケモンデータを静的 JSON から読み込む詳細ページです。'
 })
+
 </script>
 
 <template>
@@ -886,26 +1000,74 @@ useSeoMeta({
           <article
             v-for="group in globalDescriptionGroups"
             :key="group.key"
-            class="global-description-card"
+            class="global-description-group"
           >
-            <div class="global-description-card__versions">
-              <span
-                v-for="versionEntry in group.versions"
-                :key="`${group.key}-${versionEntry.version}`"
-                class="global-description-card__version-chip"
-                :title="versionEntry.version"
-              >
-                <img
-                  v-if="isVersionIconVisible(versionEntry.versionCode, versionEntry.version)"
-                  :src="versionEntry.iconPath"
-                  :alt="versionEntry.label"
-                  class="global-description-card__icon"
-                  @error="handleVersionIconError(versionEntry.versionCode, versionEntry.version)"
+            <button
+              type="button"
+              class="global-description-group__summary"
+              :aria-expanded="expandedGlobalDescriptionKeys.includes(group.key)"
+              @click="toggleGlobalDescriptionGroup(group.key)"
+            >
+              <div class="global-description-group__icon-row">
+                <span
+                  v-for="versionEntry in group.versions"
+                  :key="versionEntry.key"
+                  class="global-description-group__version-chip"
+                  :title="versionEntry.version"
                 >
-                <span class="global-description-card__label">{{ versionEntry.label }}</span>
-              </span>
+                  <img
+                    v-if="isVersionIconVisible(versionEntry.versionCode, versionEntry.version)"
+                    :src="versionEntry.iconPath"
+                    :alt="versionEntry.label"
+                    class="global-description-group__icon"
+                    @error="handleVersionIconError(versionEntry.versionCode, versionEntry.version)"
+                  >
+                  <span class="global-description-group__label">{{ versionEntry.label }}</span>
+                </span>
+              </div>
+              <p class="detail-description global-description-group__description" v-html="group.html" />
+            </button>
+
+            <div
+              v-if="expandedGlobalDescriptionKeys.includes(group.key)"
+              class="global-description-group__details"
+            >
+              <article
+                v-for="versionEntry in group.versions"
+                :key="`${group.key}-${versionEntry.key}`"
+                class="global-description-entry"
+              >
+                <div class="global-description-entry__header">
+                  <div class="global-description-entry__title-row">
+                    <img
+                      v-if="isVersionIconVisible(versionEntry.versionCode, versionEntry.version)"
+                      :src="versionEntry.iconPath"
+                      :alt="versionEntry.label"
+                      class="global-description-entry__icon"
+                      @error="handleVersionIconError(versionEntry.versionCode, versionEntry.version)"
+                    >
+                    <strong class="global-description-entry__title">{{ versionEntry.label }}</strong>
+                  </div>
+                  <div
+                    v-if="versionEntry.regionLinks.length > 0"
+                    class="global-description-entry__regional-numbers"
+                  >
+                    <NuxtLink
+                      v-for="regionLink in versionEntry.regionLinks"
+                      :key="`${versionEntry.key}-${regionLink.key}`"
+                      :to="regionLink.to"
+                      class="regional-number-chip regional-number-chip--link"
+                      :title="`${regionLink.label} ${String(regionLink.dex).padStart(4, '0')}へ移動`"
+                      @click.stop
+                    >
+                      <span class="regional-number-chip__label">{{ regionLink.label }}</span>
+                      <span class="regional-number-chip__value">No.{{ String(regionLink.dex).padStart(4, '0') }}</span>
+                    </NuxtLink>
+                  </div>
+                </div>
+                <p class="detail-description" v-html="versionEntry.html" />
+              </article>
             </div>
-            <p class="detail-description" v-html="group.html" />
           </article>
         </div>
       </section>
@@ -1043,18 +1205,32 @@ useSeoMeta({
   gap: 1rem;
 }
 
-.global-description-card {
-  display: grid;
-  gap: 0.75rem;
+.global-description-group {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 1rem;
+  background: rgba(255, 255, 255, 0.7);
 }
 
-.global-description-card__versions {
+.global-description-group__summary {
+  display: grid;
+  gap: 0.75rem;
+  width: 100%;
+  padding: 1rem;
+  border: 0;
+  border-radius: 1rem;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.global-description-group__icon-row {
   display: flex;
   flex-wrap: wrap;
   gap: 0.5rem 0.75rem;
 }
 
-.global-description-card__version-chip {
+.global-description-group__version-chip {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
@@ -1063,17 +1239,86 @@ useSeoMeta({
   background: rgba(15, 23, 42, 0.06);
 }
 
-.global-description-card__icon {
+.global-description-group__icon,
+.global-description-entry__icon {
   width: 20px;
   height: 20px;
   object-fit: contain;
   flex-shrink: 0;
 }
 
-.global-description-card__label {
+.global-description-group__label {
   font-size: 0.85rem;
   font-weight: 600;
   line-height: 1.2;
+}
+
+.global-description-group__description {
+  margin: 0;
+}
+
+.global-description-group__details {
+  display: grid;
+  gap: 0.75rem;
+  padding: 0 1rem 1rem;
+}
+
+.global-description-entry {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.9rem 1rem;
+  border-radius: 0.85rem;
+  background: rgba(15, 23, 42, 0.04);
+}
+
+.global-description-entry__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.global-description-entry__title-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.global-description-entry__regional-numbers {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.5rem;
+}
+
+.regional-number-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.32rem 0.7rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.06);
+  font-size: 0.82rem;
+  line-height: 1.2;
+}
+
+.regional-number-chip--link {
+  color: inherit;
+  text-decoration: none;
+}
+
+.regional-number-chip--link:hover {
+  text-decoration: underline;
+}
+
+.regional-number-chip__label {
+  font-weight: 600;
+}
+
+.global-description-entry__title {
+  font-size: 0.95rem;
+  line-height: 1.4;
 }
 
 @media (max-width: 720px) {
