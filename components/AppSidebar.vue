@@ -13,6 +13,10 @@ const primaryItems = [
     to: appConfig.navigation.home
   },
   {
+    label: 'ギャラリー',
+    to: appConfig.navigation.gallery
+  },
+  {
     label: 'ポケモン図鑑',
     to: appConfig.navigation.pokedex
   },

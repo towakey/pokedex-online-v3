@@ -10,6 +10,7 @@ interface SiteAppConfig {
   }
   navigation: {
     home: string
+    gallery: string
     pokedex: string
     search: string
   }

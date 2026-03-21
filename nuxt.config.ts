@@ -23,7 +23,7 @@ const formatPokemonRouteId = (id: number | string) => {
 }
 
 const createPrerenderRoutes = () => {
-  const routes = new Set<string>(['/', '/search', '/pokedex'])
+  const routes = new Set<string>(['/', '/gallery', '/search', '/pokedex'])
 
   if (existsSync(pokemonDir)) {
     for (const file of readdirSync(pokemonDir)) {
@@ -115,6 +115,7 @@ export default defineNuxtConfig({
   },
   routeRules: {
     '/': { prerender: true },
+    '/gallery': { prerender: true },
     '/search': { prerender: true },
     '/pokedex': { prerender: true },
     '/pokedex/**': { prerender: true }
