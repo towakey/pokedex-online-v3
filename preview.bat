@@ -10,7 +10,7 @@ if "%errorlevel%"=="0" (
   exit /b 0
 )
 
-start "pokedex-online-v3 dev server" cmd /k "cd /d ""%~dp0"" && npm run dev"
+start "pokedex-online-v3 dev server" cmd /k pushd "%~dp0" ^&^& npm run dev
 
 powershell -NoProfile -ExecutionPolicy Bypass -Command "$deadline = (Get-Date).AddMinutes(2); while ((Get-Date) -lt $deadline) { try { $response = Invoke-WebRequest -UseBasicParsing 'http://localhost:3000/' -TimeoutSec 2; if ($response.StatusCode -ge 200) { Start-Process 'http://localhost:3000/'; exit 0 } } catch {} Start-Sleep -Seconds 1 }; exit 1"
 
