@@ -19,12 +19,24 @@ const { getTypeColor } = useTypeColor()
 const pokemonNumber = computed(() => formatPokemonNumber(props.pokemon.dex).replace(/^#/, ''))
 const cardSubtitle = computed(() => props.subtitle ?? `全国No. ${pokemonNumber.value}`)
 const cardLink = computed(() => props.to ?? buildPokemonDetailPath(appConfig.site.defaultArea, props.pokemon.dex, props.pokemon.id))
+const primaryImageSrc = computed(() => getPokemonImagePath(props.pokemon.id))
+const fallbackImageSrc = computed(() => getPokemonImagePath(props.pokemon.dex))
 const imageVisible = ref(true)
-const imageSrc = computed(() => getPokemonImagePath(props.pokemon.id))
+const imageSrc = ref('')
 
-watch(() => props.pokemon.id, () => {
+watch(() => [props.pokemon.id, props.pokemon.dex], () => {
   imageVisible.value = true
-})
+  imageSrc.value = primaryImageSrc.value
+}, { immediate: true })
+
+const handleImageError = () => {
+  if (imageSrc.value !== fallbackImageSrc.value) {
+    imageSrc.value = fallbackImageSrc.value
+    return
+  }
+
+  imageVisible.value = false
+}
 </script>
 
 <template>
@@ -35,7 +47,7 @@ watch(() => props.pokemon.id, () => {
         :src="imageSrc"
         :alt="pokemon.name"
         class="pokemon-card__image"
-        @error="imageVisible = false"
+        @error="handleImageError"
       >
       <div v-else class="pokemon-card__avatar">
         #{{ pokemonNumber }}
