@@ -10,6 +10,7 @@ export default defineAppConfig({
   },
   navigation: {
     home: '/',
+    gallery: '/gallery',
     pokedex: '/pokedex',
     search: '/search'
   }
