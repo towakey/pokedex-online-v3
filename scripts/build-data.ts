@@ -26,6 +26,7 @@ interface PokemonRecord {
     description: string
     descriptions?: Record<string, string>
     versionCode?: string
+    regionLinks?: GlobalDescriptionRegionLink[]
   }>
   stats?: Partial<Record<StatKey, number>>
   forms?: Record<string, string>
@@ -97,6 +98,12 @@ interface VersionMappingEntry {
   name_jpn?: string
   version?: string
   release_day?: string
+}
+
+interface GlobalDescriptionRegionLink {
+  regionSlug: string
+  regionDex: number
+  regionLabel: string
 }
 
 const readJsonFile = <T extends JsonValue>(filePath: string): T => {
@@ -207,6 +214,10 @@ const normalizeVersionLabel = (value: string): string => {
     .join(' ')
 }
 
+const normalizeVersionNameKey = (value: string): string => {
+  return String(value).trim().toLowerCase()
+}
+
 const isUsableDescription = (value: string | undefined): value is string => {
   if (!value) {
     return false
@@ -220,8 +231,8 @@ const isUsableDescription = (value: string | undefined): value is string => {
   return !['じょうほう なし', 'null', 'undefined'].includes(normalized.toLowerCase())
 }
 
-const createVersionDisplayMap = (value: JsonValue | undefined): Map<string, { version: string; label: string; order: number }> => {
-  const versionMap = new Map<string, { version: string; label: string; order: number }>()
+const createVersionDisplayMap = (value: JsonValue | undefined): Map<string, { version: string; versionGroup?: string; label: string; order: number }> => {
+  const versionMap = new Map<string, { version: string; versionGroup?: string; label: string; order: number }>()
 
   if (!isRecord(value)) {
     return versionMap
@@ -240,6 +251,7 @@ const createVersionDisplayMap = (value: JsonValue | undefined): Map<string, { ve
 
     versionMap.set(code, {
       version: versionKey,
+      versionGroup: toStringValue(versionEntry.version),
       label: toStringValue(versionEntry.name_jpn) ?? normalizeVersionLabel(versionKey),
       order: index
     })
@@ -248,10 +260,119 @@ const createVersionDisplayMap = (value: JsonValue | undefined): Map<string, { ve
   return versionMap
 }
 
+const createVersionDescriptionLookup = (versionFileIndex: Map<string, string>): Map<string, Map<string, string>> => {
+  const lookup = new Map<string, Map<string, string>>()
+  const filePaths = [...new Set(versionFileIndex.values())]
+
+  for (const filePath of filePaths) {
+    const versionSource = readJsonFile<JsonRecord>(filePath)
+    const regionalPokedexMap = toRecordMap(versionSource.pokedex)
+
+    for (const regionalValue of Object.values(regionalPokedexMap)) {
+      const regionalEntriesMap = toRecordMap(regionalValue)
+
+      for (const formsValue of Object.values(regionalEntriesMap)) {
+        const formMap = toRecordMap(formsValue)
+
+        for (const [pokemonId, pokemonEntry] of Object.entries(formMap)) {
+          const descriptions = normalizeLocalizedMap(pokemonEntry.description)
+          if (!descriptions) {
+            continue
+          }
+
+          for (const [versionName, description] of Object.entries(descriptions)) {
+            if (!isUsableDescription(description)) {
+              continue
+            }
+
+            const normalizedVersionName = normalizeVersionNameKey(versionName)
+            if (!normalizedVersionName) {
+              continue
+            }
+
+            const versionLookup = lookup.get(normalizedVersionName) ?? new Map<string, string>()
+            if (!lookup.has(normalizedVersionName)) {
+              lookup.set(normalizedVersionName, versionLookup)
+            }
+
+            if (!versionLookup.has(pokemonId)) {
+              versionLookup.set(pokemonId, description)
+            }
+          }
+        }
+      }
+    }
+  }
+
+  return lookup
+}
+
+const createVersionRegionLinkLookup = (
+  configuredRegionEntries: Array<[string, RegionConfig]>,
+  versionFileIndex: Map<string, string>
+): Map<string, Map<string, GlobalDescriptionRegionLink[]>> => {
+  const lookup = new Map<string, Map<string, GlobalDescriptionRegionLink[]>>()
+
+  for (const [slug, regionConfig] of configuredRegionEntries) {
+    const versionFilePath = versionFileIndex.get(regionConfig.version_key)
+
+    if (!versionFilePath) {
+      continue
+    }
+
+    const versionSource = readJsonFile<JsonRecord>(versionFilePath)
+    const regionalPokedexMap = toRecordMap(versionSource.pokedex)
+    const fallbackRegionEntry = Object.entries(regionalPokedexMap)[regionConfig.pokedex_index]
+    const targetRegionValue = regionalPokedexMap[regionConfig.display_jpn] ?? fallbackRegionEntry?.[1]
+    const regionalEntriesMap = toRecordMap(targetRegionValue)
+
+    if (Object.keys(regionalEntriesMap).length === 0) {
+      continue
+    }
+
+    const normalizedVersionGroupKey = normalizeVersionNameKey(regionConfig.version_key)
+    const versionLookup = lookup.get(normalizedVersionGroupKey) ?? new Map<string, GlobalDescriptionRegionLink[]>()
+    if (!lookup.has(normalizedVersionGroupKey)) {
+      lookup.set(normalizedVersionGroupKey, versionLookup)
+    }
+
+    for (const [localDex, formsValue] of Object.entries(regionalEntriesMap)) {
+      const formMap = toRecordMap(formsValue)
+      const localDexNumber = parsePokemonId(localDex)
+
+      if (!localDexNumber) {
+        continue
+      }
+
+      for (const pokemonId of Object.keys(formMap)) {
+        const currentLinks = versionLookup.get(pokemonId) ?? []
+        if (!versionLookup.has(pokemonId)) {
+          versionLookup.set(pokemonId, currentLinks)
+        }
+
+        if (currentLinks.some((entry) => entry.regionSlug === slug)) {
+          continue
+        }
+
+        currentLinks.push({
+          regionSlug: slug,
+          regionDex: localDexNumber,
+          regionLabel: regionConfig.display_jpn || createRegionLabel(slug)
+        })
+      }
+    }
+  }
+
+  return lookup
+}
+
 const createGlobalDescriptionEntries = (
   value: JsonValue | undefined,
-  versionDisplayMap: Map<string, { version: string; label: string; order: number }>
-): Array<{ version: string; label: string; description: string; descriptions?: Record<string, string>; versionCode?: string }> => {
+  versionDisplayMap: Map<string, { version: string; versionGroup?: string; label: string; order: number }>,
+  versionDescriptionLookup: Map<string, Map<string, string>>,
+  versionRegionLinkLookup: Map<string, Map<string, GlobalDescriptionRegionLink[]>>,
+  pokemonId: string
+): Array<{ version: string; label: string; description: string; descriptions?: Record<string, string>; versionCode?: string; regionLinks?: GlobalDescriptionRegionLink[] }> => {
   if (!isRecord(value)) {
     return []
   }
@@ -274,28 +395,40 @@ const createGlobalDescriptionEntries = (
       return key
         .split(',')
         .map((entry) => entry.trim())
-        .filter(Boolean)
+        .filter((entry) => entry !== '')
         .map((versionCode, versionIndex) => {
           const versionMeta = versionDisplayMap.get(versionCode)
+          const versionNameKey = normalizeVersionNameKey(versionMeta?.version ?? versionCode)
+          const versionSpecificDescription = versionDescriptionLookup.get(versionNameKey)?.get(pokemonId)
+          const versionGroupKey = normalizeVersionNameKey(versionMeta?.versionGroup ?? '')
+          const regionalLinks = versionGroupKey
+            ? versionRegionLinkLookup.get(versionGroupKey)?.get(pokemonId)
+            : undefined
+          const mergedDescriptions = mergeLocalizedMaps(
+            descriptions,
+            versionSpecificDescription ? { jpn_kana: versionSpecificDescription } : undefined
+          )
 
           return {
             version: versionMeta?.version ?? versionCode,
             label: versionMeta?.label ?? versionCode,
             description,
-            descriptions,
+            descriptions: mergedDescriptions,
             versionCode,
+            regionLinks: regionalLinks?.map((entry) => ({ ...entry })),
             order: versionMeta?.order ?? (1000 + index * 100 + versionIndex)
           }
         })
     })
-    .filter((entry): entry is { version: string; label: string; description: string; descriptions?: Record<string, string>; versionCode?: string; order: number } => Boolean(entry))
+    .filter(Boolean)
     .sort((left, right) => left.order - right.order || left.version.localeCompare(right.version))
-    .map(({ version, label, description, descriptions, versionCode }) => ({
+    .map(({ version, label, description, descriptions, versionCode, regionLinks }) => ({
       version,
       label,
       description,
       descriptions,
-      versionCode
+      versionCode,
+      regionLinks
     }))
 }
 
@@ -675,7 +808,8 @@ const normalizePokemonRecord = (record: JsonRecord, path: string[]): PokemonReco
   }
 
   return {
-    id,
+    id: String(id),
+    dex: id,
     name: name ?? `Pokemon ${id}`,
     names,
     types,
@@ -722,7 +856,8 @@ const normalizeRegionEntry = (record: JsonRecord, path: string[]): RegionEntry |
 
   return {
     dex,
-    pokemon_id: pokemonId
+    pokemon_id: String(pokemonId),
+    national_dex: pokemonId
   }
 }
 
@@ -804,6 +939,8 @@ const configuredRegions = configSource.regions && typeof configSource.regions ==
 const configuredRegionEntries = Object.entries(configuredRegions) as Array<[string, RegionConfig]>
 const versionFileIndex = createVersionFileIndex()
 const versionDisplayMap = createVersionDisplayMap((configSource as JsonRecord).version_mapping)
+const versionDescriptionLookup = createVersionDescriptionLookup(versionFileIndex)
+const versionRegionLinkLookup = createVersionRegionLinkLookup(configuredRegionEntries, versionFileIndex)
 
 if (Object.keys(globalPokedex).length === 0) {
   throw new Error('The global pokedex dataset is empty.')
@@ -829,7 +966,7 @@ for (const [globalNo, formsValue] of Object.entries(globalPokedex)) {
   }
 
   for (const [pokemonId, pokemonEntry] of Object.entries(formMap)) {
-    const globalDescriptions = createGlobalDescriptionEntries(globalDescriptionMap.get(pokemonId), versionDisplayMap)
+    const globalDescriptions = createGlobalDescriptionEntries(globalDescriptionMap.get(pokemonId), versionDisplayMap, versionDescriptionLookup, versionRegionLinkLookup, pokemonId)
     const baseRecord = createPokemonBaseRecord(pokemonId, dexNumber, { [pokemonId]: pokemonEntry })
 
     pokemonMap.set(pokemonId, {
