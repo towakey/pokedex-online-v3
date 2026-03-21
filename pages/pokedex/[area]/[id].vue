@@ -132,6 +132,20 @@ const normalizeVersionCode = (value?: string): string => {
     .replace(/^v/i, '')
 }
 
+const resolveVersionIconCode = (value?: string): string => {
+  const normalizedVersionCode = normalizeVersionCode(value)
+  if (!normalizedVersionCode || normalizedVersionCode === '98_00') {
+    return ''
+  }
+
+  const segments = normalizedVersionCode.split('_')
+  if (segments.length > 2) {
+    return `${segments[0]}_${segments[1]}`
+  }
+
+  return normalizedVersionCode
+}
+
 const normalizeDescriptionGroupKey = (value: string): string => {
   return value
     .replace(/<rp>.*?<\/rp>/g, '')
@@ -142,7 +156,7 @@ const normalizeDescriptionGroupKey = (value: string): string => {
 }
 
 const getPokedexVersionIconPath = (versionCode?: string): string => {
-  const normalizedVersionCode = normalizeVersionCode(versionCode)
+  const normalizedVersionCode = resolveVersionIconCode(versionCode)
   if (!normalizedVersionCode) {
     return ''
   }
@@ -800,12 +814,12 @@ const statEntries = computed<StatEntry[]>(() => {
 const maxStat = computed<number>(() => Math.max(...statEntries.value.map((entry: StatEntry) => entry.value), 0))
 
 const isVersionIconVisible = (versionCode?: string, version?: string): boolean => {
-  const iconKey = normalizeVersionCode(versionCode) || normalizeVersionAssetKey(String(version ?? ''))
+  const iconKey = resolveVersionIconCode(versionCode) || normalizeVersionAssetKey(String(version ?? ''))
   return Boolean(iconKey) && hiddenVersionIcons.value[iconKey] !== true
 }
 
 const handleVersionIconError = (versionCode?: string, version?: string) => {
-  const iconKey = normalizeVersionCode(versionCode) || normalizeVersionAssetKey(String(version ?? ''))
+  const iconKey = resolveVersionIconCode(versionCode) || normalizeVersionAssetKey(String(version ?? ''))
   if (!iconKey || hiddenVersionIcons.value[iconKey]) {
     return
   }
