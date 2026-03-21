@@ -608,7 +608,8 @@ const availableLanguages = computed<LanguageOption[]>(() => {
   const maps = pageData.value.entries.flatMap((entry: PokemonPageEntry) => [
     entry.pokemon.names,
     entry.pokemon.forms,
-    entry.pokemon.classifications
+    entry.pokemon.classifications,
+    ...(entry.pokemon.globalDescriptions ?? []).map((descriptionEntry) => descriptionEntry.descriptions)
   ])
   const filteredMaps = maps.filter((entry): entry is LocalizedTextMap => hasLocalizedText(entry))
 
@@ -718,13 +719,13 @@ const globalDescriptionItems = computed<GlobalDescriptionEntry[]>(() => (pokemon
     regionLinks: entry.regionLinks
   }))
   .filter((entry) => Boolean(entry.description.trim())))
-const globalDescriptionGroups = computed<GlobalDescriptionGroup[]>(() => {
+const createDescriptionGroups = (entries: GlobalDescriptionEntry[]): GlobalDescriptionGroup[] => {
   const groups = new Map<string, {
     description: string
     versions: GlobalDescriptionGroupVersion[]
     versionKeys: Set<string>
   }>()
-  for (const entry of globalDescriptionItems.value) {
+  for (const entry of entries) {
     const groupKey = normalizeDescriptionGroupKey(entry.groupDescription)
     if (!groupKey) {
       continue
@@ -764,14 +765,24 @@ const globalDescriptionGroups = computed<GlobalDescriptionGroup[]>(() => {
       current.versions.push(versionEntry)
     }
   }
- 
   return [...groups.entries()].map(([groupKey, group]) => ({
     key: groupKey,
     description: group.description,
     html: group.description.replace(/\n/g, '<br>'),
     versions: group.versions
   }))
-})
+}
+const regionalDescriptionItems = computed<GlobalDescriptionEntry[]>(() => globalDescriptionItems.value.filter((entry) => {
+  const currentDex = pageData.value.dex
+  if (!currentDex) {
+    return false
+  }
+
+  return (entry.regionLinks ?? []).some((regionLink) => normalizeRegionSlug(regionLink.regionSlug) === pageData.value.areaSlug && regionLink.regionDex === currentDex)
+}))
+const globalDescriptionGroups = computed<GlobalDescriptionGroup[]>(() => createDescriptionGroups(globalDescriptionItems.value))
+const regionalDescriptionGroups = computed<GlobalDescriptionGroup[]>(() => createDescriptionGroups(regionalDescriptionItems.value))
+const displayedDescriptionGroups = computed<GlobalDescriptionGroup[]>(() => isGlobalArea.value ? globalDescriptionGroups.value : regionalDescriptionGroups.value)
 const pokemonImagePath = computed(() => pokemon.value ? getPokemonImagePath(pokemon.value.id) : '')
 const pokemonImageVisible = ref(true)
 const hiddenVersionIcons = ref<Record<string, boolean>>({})
@@ -842,7 +853,7 @@ watch(() => pokemon.value?.id, () => {
   expandedGlobalDescriptionKeys.value = []
 })
 
-watch(globalDescriptionGroups, (groups) => {
+watch(displayedDescriptionGroups, (groups) => {
   if (groups.length === 0) {
     expandedGlobalDescriptionKeys.value = []
     return
@@ -989,7 +1000,7 @@ useSeoMeta({
         </article>
       </section>
 
-      <section v-if="isGlobalArea && globalDescriptionGroups.length > 0" class="surface section-card">
+      <section v-if="displayedDescriptionGroups.length > 0" class="surface section-card">
         <div class="section-header">
           <div>
             <span class="eyebrow">Dex Entries</span>
@@ -998,7 +1009,7 @@ useSeoMeta({
         </div>
         <div class="global-description-list">
           <article
-            v-for="group in globalDescriptionGroups"
+            v-for="group in displayedDescriptionGroups"
             :key="group.key"
             class="global-description-group"
           >
@@ -1049,7 +1060,7 @@ useSeoMeta({
                     <strong class="global-description-entry__title">{{ versionEntry.label }}</strong>
                   </div>
                   <div
-                    v-if="versionEntry.regionLinks.length > 0"
+                    v-if="isGlobalArea && versionEntry.regionLinks.length > 0"
                     class="global-description-entry__regional-numbers"
                   >
                     <NuxtLink
