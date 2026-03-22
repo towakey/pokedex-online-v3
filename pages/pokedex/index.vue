@@ -46,7 +46,7 @@ const pageData = computed<PokedexTopPageData>(() => data.value ?? createDefaultP
 
 useSeoMeta({
   title: 'ポケモン図鑑',
-  description: '参照実装の pages/pokedex 構成に合わせた図鑑トップページです。'
+  description: 'Pokedex-Online'
 })
 </script>
 
@@ -61,7 +61,7 @@ useSeoMeta({
           ポケモン図鑑
         </h1>
         <p class="hero__description">
-          {{ appConfig.site.description }}のトップページです。参照実装の構成に合わせて、地域図鑑の入口をまとめています。
+          {{ appConfig.site.description }}のトップページです。
         </p>
         <div class="pill-row">
           <NuxtLink :to="defaultAreaPath" class="button-primary">
