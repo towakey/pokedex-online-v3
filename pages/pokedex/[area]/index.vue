@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { useSiteAppConfig } from '~/composables/useSiteAppConfig'
+import { useTypeColor } from '~/composables/useTypeColor'
 import type { RegionEntry, RegionMeta, SearchIndexItem } from '~/composables/usePokedex'
 
 type LocalizedTextMap = Record<string, string>
@@ -42,6 +43,24 @@ const areaSlug = computed(() => normalizeRegionSlug(rawAreaSlug.value))
 const searchQuery = ref('')
 const selectedTypes = ref<string[]>([])
 const isDebug = computed(() => route.query.debug !== undefined)
+
+const { getTypeColor } = useTypeColor()
+
+const getTypeButtonStyle = (type: string, isSelected: boolean) => {
+  const color = getTypeColor(type)
+  if (isSelected) {
+    return {
+      backgroundColor: color,
+      color: '#ffffff',
+      borderColor: color
+    }
+  }
+  return {
+    backgroundColor: `${color}33`,
+    color: color,
+    borderColor: `${color}66`
+  }
+}
 
 const normalizeLanguageKey = (value: string): string => String(value ?? '').trim().toLowerCase()
 const normalizeSelectorKey = (value: string): string => String(value ?? '').normalize('NFKC').trim().replace(/\s+/g, ' ').toLocaleLowerCase()
@@ -306,6 +325,7 @@ useSeoMeta({
           type="button"
           class="filter-chip"
           :class="{ 'filter-chip--active': selectedTypes.includes(type) }"
+          :style="getTypeButtonStyle(type, selectedTypes.includes(type))"
           @click="toggleType(type)"
         >
           {{ type }}
