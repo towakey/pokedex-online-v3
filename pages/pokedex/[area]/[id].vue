@@ -1429,14 +1429,20 @@ useSeoMeta({
 
 @media (max-width: 720px) {
   .detail-nav {
-    grid-template-columns: 1fr;
+    grid-template-columns: 1fr auto 1fr;
+    gap: 0.5rem;
   }
 
-  .detail-nav__slot,
-  .detail-nav__slot--start,
-  .detail-nav__slot--center,
+  .detail-nav__slot--start {
+    justify-content: flex-start;
+  }
+
+  .detail-nav__slot--center {
+    justify-content: center;
+  }
+
   .detail-nav__slot--end {
-    justify-content: stretch;
+    justify-content: flex-end;
   }
 
   .detail-nav__link,
