@@ -241,6 +241,19 @@ useSeoMeta({
           :to="`${pokedexTopPath}/${region.slug}`"
           class="pill-link"
         >
+          <!-- 地域アイコン（設定がある場合） -->
+          <span
+            v-if="appConfig.pokedex?.regionIcons?.[region.slug]?.length"
+            class="region-icons"
+          >
+            <img
+              v-for="icon in appConfig.pokedex.regionIcons[region.slug]"
+              :key="icon"
+              :src="`/${appConfig.pokedex.versionIconBasePath}/${icon}`"
+              :alt="region.label"
+              class="region-icon"
+            />
+          </span>
           <span>{{ region.label }}</span>
           <strong>{{ region.count }}</strong>
         </NuxtLink>
@@ -315,5 +328,22 @@ useSeoMeta({
   word-break: break-word;
   font-size: 0.85rem;
   line-height: 1.5;
+}
+
+.region-icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  margin-right: 0.5rem;
+}
+
+.region-icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+}
+
+.pill-link .region-icons {
+  flex-shrink: 0;
 }
 </style>

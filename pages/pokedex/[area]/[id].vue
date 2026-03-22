@@ -876,6 +876,32 @@ watch(displayedDescriptionGroups, (groups) => {
   expandedGlobalDescriptionKeys.value = expandedGlobalDescriptionKeys.value.filter((groupKey) => groups.some((group) => group.key === groupKey))
 }, { immediate: true })
 
+// 言語切り替え関数
+const selectedLanguageIndex = computed(() => availableLanguages.value.findIndex(lang => lang.key === selectedLanguage.value))
+
+const prevLanguage = () => {
+  const newIndex = (selectedLanguageIndex.value - 1 + availableLanguages.value.length) % availableLanguages.value.length
+  selectedLanguage.value = availableLanguages.value[newIndex].key
+}
+
+const nextLanguage = () => {
+  const newIndex = (selectedLanguageIndex.value + 1) % availableLanguages.value.length
+  selectedLanguage.value = availableLanguages.value[newIndex].key
+}
+
+// フォーム切り替え関数
+const activeFormIndex = computed(() => formEntries.value.findIndex(entry => entry.id === activeEntry.value?.id))
+
+const prevForm = () => {
+  const newIndex = (activeFormIndex.value - 1 + formEntries.value.length) % formEntries.value.length
+  navigateTo(formEntries.value[newIndex].to)
+}
+
+const nextForm = () => {
+  const newIndex = (activeFormIndex.value + 1) % formEntries.value.length
+  navigateTo(formEntries.value[newIndex].to)
+}
+
 useSeoMeta({
   title: () => pokemon.value ? `${displayPokemonName.value} ${currentDexLabel.value}` : 'ポケモン詳細',
   description: () => descriptionText.value || '個別ポケモンデータを静的 JSON から読み込む詳細ページです。'
@@ -923,7 +949,8 @@ useSeoMeta({
           </div>
         </div>
 
-        <div class="language-switcher__list">
+        <!-- Desktop: 通常のリスト表示 -->
+        <div class="language-switcher__list language-switcher__list--desktop">
           <button
             v-for="language in availableLanguages"
             :key="language.key"
@@ -933,6 +960,29 @@ useSeoMeta({
             @click="selectedLanguage = language.key"
           >
             {{ language.label }}
+          </button>
+        </div>
+
+        <!-- Mobile: 左右ボタン切り替え -->
+        <div class="language-switcher__mobile">
+          <button
+            type="button"
+            class="language-switcher__nav-btn"
+            @click="prevLanguage"
+            aria-label="前の言語"
+          >
+            ＜
+          </button>
+          <span class="language-switcher__current">
+            {{ availableLanguages.find(lang => lang.key === selectedLanguage)?.label }}
+          </span>
+          <button
+            type="button"
+            class="language-switcher__nav-btn"
+            @click="nextLanguage"
+            aria-label="次の言語"
+          >
+            ＞
           </button>
         </div>
       </section>
@@ -945,7 +995,8 @@ useSeoMeta({
           </div>
         </div>
 
-        <div class="form-switcher__list">
+        <!-- Desktop: 通常のリスト表示 -->
+        <div class="form-switcher__list form-switcher__list--desktop">
           <NuxtLink
             v-for="entry in formEntries"
             :key="entry.id"
@@ -956,6 +1007,29 @@ useSeoMeta({
             <span>{{ entry.displayLabel }}</span>
             <strong>{{ entry.typeLabel }}</strong>
           </NuxtLink>
+        </div>
+
+        <!-- Mobile: 左右ボタン切り替え -->
+        <div class="form-switcher__mobile">
+          <button
+            type="button"
+            class="form-switcher__nav-btn"
+            @click="prevForm"
+            aria-label="前のフォーム"
+          >
+            ＜
+          </button>
+          <span class="form-switcher__current">
+            {{ activeEntry?.displayLabel }}
+          </span>
+          <button
+            type="button"
+            class="form-switcher__nav-btn"
+            @click="nextForm"
+            aria-label="次のフォーム"
+          >
+            ＞
+          </button>
         </div>
       </section>
 
@@ -1370,6 +1444,63 @@ useSeoMeta({
   .language-switcher__button,
   .form-switcher__link {
     width: 100%;
+  }
+
+  /* デスクトップ表示を隠す */
+  .language-switcher__list--desktop,
+  .form-switcher__list--desktop {
+    display: none;
+  }
+
+  /* モバイル表示 */
+  .language-switcher__mobile,
+  .form-switcher__mobile {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.5rem 0;
+  }
+
+  .language-switcher__nav-btn,
+  .form-switcher__nav-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    border-radius: 0.5rem;
+    background: rgba(255, 255, 255, 0.8);
+    font-size: 1.2rem;
+    font-weight: 700;
+    color: #0f172a;
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .language-switcher__nav-btn:active,
+  .form-switcher__nav-btn:active {
+    background: rgba(15, 23, 42, 0.1);
+  }
+
+  .language-switcher__current,
+  .form-switcher__current {
+    flex: 1;
+    text-align: center;
+    font-size: 1rem;
+    font-weight: 600;
+    padding: 0.5rem;
+    background: rgba(15, 23, 42, 0.04);
+    border-radius: 0.5rem;
+  }
+}
+
+/* デスクトップ表示: モバイルUIを隠す */
+@media (min-width: 721px) {
+  .language-switcher__mobile,
+  .form-switcher__mobile {
+    display: none;
   }
 }
 </style>
