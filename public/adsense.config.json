@@ -1,0 +1,21 @@
+{
+  "description": "Google AdSense configuration for Pokédex Online v3. Replace with your actual client and slot values.",
+  "client": "ca-pub-xxxxxxxxxxxxxxxx",
+  "slots": {
+    "rectangle": "1234567890",
+    "banner": "0987654321",
+    "square": "1111111111",
+    "large_banner": "2222222222",
+    "mobile_banner": "3333333333"
+  },
+  "settings": {
+    "testMode": true,
+    "fullWidthResponsive": "true",
+    "adFormat": "auto"
+  },
+  "labels": {
+    "advertisement": "広告",
+    "sponsored": "スポンサードリンク",
+    "promotion": "PR"
+  }
+}

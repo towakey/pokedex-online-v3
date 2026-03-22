@@ -71,6 +71,13 @@ useSeoMeta({
       </div>
     </section>
 
+    <AdSenseCard
+      slot-type="banner"
+      width="100%"
+      :height="90"
+      label-type="sponsored"
+    />
+
     <section v-if="pageData.regions.length > 0" class="surface section-card">
       <div class="section-header">
         <div>
