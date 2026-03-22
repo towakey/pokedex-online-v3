@@ -193,7 +193,7 @@ const debugPayload = computed(() => JSON.stringify({
 
 useSeoMeta({
   title: 'ホーム',
-  description: '参照実装の構成に寄せつつ、完全静的配信に対応したポケモン図鑑アプリです。'
+  description: 'ポケモン図鑑アプリ'
 })
 </script>
 
