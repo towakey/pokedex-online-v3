@@ -7,6 +7,7 @@ interface SiteAppConfig {
   }
   pokedex: {
     versionIconBasePath: string
+    regionIcons?: Record<string, string[]>
   }
   navigation: {
     home: string
