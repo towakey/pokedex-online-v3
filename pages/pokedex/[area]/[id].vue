@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useSiteAppConfig } from '~/composables/useSiteAppConfig'
 import { useTypeColor } from '~/composables/useTypeColor'
 import type { PokemonDetail, RegionEntry, RegionMeta, SearchIndexItem } from '~/composables/usePokedex'
@@ -90,8 +90,47 @@ interface LanguageOption {
   aliases?: string[]
 }
 
+interface TagItem {
+  id?: number
+  tag: string
+  area: string
+  pokedex_no: number
+  status?: string
+  good_count: number
+  bad_count: number
+  user_vote: 'good' | 'bad' | null
+  approved?: boolean
+}
+
+interface TagListResponse {
+  success: boolean
+  area?: string
+  no?: number
+  suggestions?: Array<Partial<TagItem>>
+  approved?: Array<Partial<TagItem>>
+  settings?: {
+    bad_threshold?: number
+  }
+  error?: string
+}
+
+interface TagSubmitResponse {
+  success: boolean
+  message?: string
+  error?: string
+}
+
+interface TagVoteResponse {
+  success: boolean
+  action?: 'removed' | 'updated' | 'created'
+  message?: string
+  tag_id?: number
+  vote_type?: 'good' | 'bad'
+  error?: string
+}
+
 const appConfig = useSiteAppConfig()
-const runtimeConfig = useRuntimeConfig() as { public?: { appBaseURL?: string } }
+const runtimeConfig = useRuntimeConfig() as { public?: { appBaseURL?: string, pokedexApiBaseURL?: string } }
 const { getTypeColor } = useTypeColor()
 const {
   buildPokemonDetailPath,
@@ -116,6 +155,17 @@ const normalizeBaseURL = (value?: string): string => {
 const buildAssetPath = (relativePath: string): string => {
   const baseURL = normalizeBaseURL(runtimeConfig.public?.appBaseURL)
   return `${baseURL}${relativePath.replace(/^\/+/, '')}`
+}
+
+const joinUrlPath = (basePath: string, suffix: string): string => {
+  const normalizedBase = basePath.endsWith('/') ? basePath.slice(0, -1) : basePath
+  const normalizedSuffix = suffix.startsWith('/') ? suffix.slice(1) : suffix
+  return `${normalizedBase}/${normalizedSuffix}`
+}
+
+const getParentPath = (value: string): string => {
+  const normalized = value.endsWith('/') ? value.slice(0, -1) : value
+  return normalized.replace(/\/[^/]+$/, '')
 }
 
 const normalizeVersionAssetKey = (value: string): string => {
@@ -812,6 +862,350 @@ const statEntries = computed<StatEntry[]>(() => {
     .filter((entry: StatEntry) => entry.value > 0)
 })
 const maxStat = computed<number>(() => Math.max(...statEntries.value.map((entry: StatEntry) => entry.value), 0))
+const tagUiLanguage = computed<'jpn' | 'eng'>(() => normalizeLanguageKey(selectedLanguage.value) === 'eng' ? 'eng' : 'jpn')
+const isTagDialogVisible = ref(false)
+const existingTags = ref<TagItem[]>([])
+const newTagInput = ref('')
+const tagInputError = ref('')
+const isSubmittingTag = ref(false)
+const isLoadingTags = ref(false)
+const isVoting = ref<number | null>(null)
+const badThreshold = ref(3)
+const tagSnackbarVisible = ref(false)
+const tagSnackbarMessage = ref('')
+const tagSnackbarTone = ref<'success' | 'error'>('success')
+
+let tagSnackbarTimer: ReturnType<typeof setTimeout> | undefined
+
+const getTagText = (jpn: string, eng: string): string => tagUiLanguage.value === 'eng' ? eng : jpn
+
+const resolveTagApiEndpoint = (): string => {
+  const configuredBase = String(runtimeConfig.public?.pokedexApiBaseURL ?? '').trim()
+  if (configuredBase) {
+    if (configuredBase.endsWith('.php')) {
+      return `${getParentPath(configuredBase)}/tags/tags.php`
+    }
+
+    return joinUrlPath(configuredBase, 'tags/tags.php')
+  }
+
+  return `${normalizeBaseURL(runtimeConfig.public?.appBaseURL)}pokedex/tags/tags.php`
+}
+
+const tagApiEndpoint = computed(() => resolveTagApiEndpoint())
+
+const showTagSnackbar = (message: string, tone: 'success' | 'error' = 'success') => {
+  if (tagSnackbarTimer) {
+    clearTimeout(tagSnackbarTimer)
+  }
+
+  tagSnackbarMessage.value = message
+  tagSnackbarTone.value = tone
+  tagSnackbarVisible.value = true
+  tagSnackbarTimer = setTimeout(() => {
+    tagSnackbarVisible.value = false
+  }, 3000)
+}
+
+const getCurrentTagArea = (): string => pageData.value.areaSlug || appConfig.site.defaultArea
+
+const getCurrentTagPokedexNo = (): number => {
+  if (isGlobalArea.value) {
+    return activeEntry.value?.nationalDex ?? pageData.value.dex ?? 0
+  }
+
+  return activeEntry.value?.localDex ?? pageData.value.dex ?? 0
+}
+
+const tagDialogSubtitle = computed(() => {
+  const areaLabel = isGlobalArea.value
+    ? getTagText('全地域', 'All Regions')
+    : pageData.value.areaLabel
+  const pokedexNo = getCurrentTagPokedexNo()
+  return `${areaLabel} / No.${String(pokedexNo).padStart(4, '0')}`
+})
+
+const normalizeTagItem = (value: Partial<TagItem>, defaults: Partial<TagItem> = {}): TagItem => ({
+  id: typeof value.id === 'number' ? value.id : (typeof defaults.id === 'number' ? defaults.id : undefined),
+  tag: String(value.tag ?? defaults.tag ?? '').trim(),
+  area: normalizeRegionSlug(String(value.area ?? defaults.area ?? getCurrentTagArea())),
+  pokedex_no: Number.parseInt(String(value.pokedex_no ?? defaults.pokedex_no ?? 0), 10) || 0,
+  status: String(value.status ?? defaults.status ?? 'approved'),
+  good_count: Number.parseInt(String(value.good_count ?? defaults.good_count ?? 0), 10) || 0,
+  bad_count: Number.parseInt(String(value.bad_count ?? defaults.bad_count ?? 0), 10) || 0,
+  user_vote: value.user_vote === 'good' || value.user_vote === 'bad' ? value.user_vote : null,
+  approved: Boolean(value.approved ?? defaults.approved ?? false)
+})
+
+const getTagScopeKey = (tagItem: Pick<TagItem, 'area' | 'pokedex_no' | 'tag'>): string => [
+  normalizeRegionSlug(tagItem.area),
+  String(tagItem.pokedex_no),
+  tagItem.tag.trim().toLocaleLowerCase()
+].join('::')
+
+const scopedExistingTags = computed<TagItem[]>(() => {
+  const area = getCurrentTagArea()
+  const pokedexNo = getCurrentTagPokedexNo()
+  if (!pokedexNo) {
+    return []
+  }
+
+  return existingTags.value
+    .filter((tagItem) => tagItem.pokedex_no === pokedexNo)
+    .filter((tagItem) => area === 'global' || normalizeRegionSlug(tagItem.area) === area)
+    .slice()
+    .sort((left, right) => {
+      const areaOrder = left.area.localeCompare(right.area, 'ja')
+      return areaOrder !== 0 ? areaOrder : left.tag.localeCompare(right.tag, 'ja')
+    })
+})
+
+const tagsForDisplay = computed<TagItem[]>(() => scopedExistingTags.value
+  .filter((tagItem) => tagItem.status !== 'rejected')
+  .filter((tagItem) => tagItem.bad_count < badThreshold.value))
+
+const validateTagInput = () => {
+  const trimmed = newTagInput.value.trim()
+  if (!trimmed) {
+    tagInputError.value = ''
+    return
+  }
+
+  if (trimmed.length > 50) {
+    tagInputError.value = getTagText('タグは50文字以内で入力してください', 'Tag must be 50 characters or less')
+    return
+  }
+
+  const isDuplicate = scopedExistingTags.value.some((tagItem) => tagItem.tag.toLocaleLowerCase() === trimmed.toLocaleLowerCase())
+  tagInputError.value = isDuplicate ? getTagText('このタグは既に存在します', 'This tag already exists') : ''
+}
+
+const canSubmitTag = computed(() => {
+  const trimmed = newTagInput.value.trim()
+  return trimmed.length > 0 && trimmed.length <= 50 && !tagInputError.value && !isSubmittingTag.value
+})
+
+const fetchExistingTags = async () => {
+  const area = getCurrentTagArea()
+  const pokedexNo = getCurrentTagPokedexNo()
+  if (!import.meta.client || !area || !pokedexNo) {
+    existingTags.value = []
+    return
+  }
+
+  isLoadingTags.value = true
+
+  try {
+    const params = new URLSearchParams({
+      area,
+      no: String(pokedexNo)
+    })
+    const response = await fetch(`${tagApiEndpoint.value}?${params.toString()}`)
+    const rawText = await response.text()
+    let payload: TagListResponse | null = null
+
+    if (rawText.trim()) {
+      try {
+        payload = JSON.parse(rawText) as TagListResponse
+      }
+      catch {
+        const statusText = `${response.status} ${response.statusText}`.trim()
+        throw new Error(`タグAPIがJSON以外を返しました。URL: ${response.url} / Status: ${statusText}`)
+      }
+    }
+
+    if (!response.ok) {
+      throw new Error(payload?.error || 'タグ一覧の取得に失敗しました。')
+    }
+
+    if (!payload?.success) {
+      throw new Error(payload?.error || 'タグ一覧の取得に失敗しました。')
+    }
+
+    const approvedTags = (payload.approved ?? []).map((tagItem) => normalizeTagItem(tagItem, {
+      approved: true,
+      status: 'approved'
+    }))
+    const suggestionTags = (payload.suggestions ?? []).map((tagItem) => normalizeTagItem(tagItem, {
+      approved: false,
+      status: 'pending'
+    }))
+    const mergedTags = [...approvedTags, ...suggestionTags]
+    const dedupedTags = [...new Map(
+      mergedTags
+        .filter((tagItem) => Boolean(tagItem.tag))
+        .map((tagItem) => [getTagScopeKey(tagItem), tagItem] as const)
+    ).values()]
+
+    existingTags.value = dedupedTags
+
+    if (payload.settings?.bad_threshold !== undefined) {
+      badThreshold.value = Number.parseInt(String(payload.settings.bad_threshold), 10) || 3
+    }
+  }
+  catch (error) {
+    console.error('Failed to fetch tags:', error)
+    existingTags.value = []
+  }
+  finally {
+    isLoadingTags.value = false
+  }
+}
+
+const voteTag = async (tagId: number | undefined, voteType: 'good' | 'bad') => {
+  if (!tagId || isVoting.value !== null) {
+    return
+  }
+
+  isVoting.value = tagId
+
+  try {
+    const response = await fetch(tagApiEndpoint.value, {
+      method: 'PUT',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        tag_id: tagId,
+        vote_type: voteType
+      })
+    })
+    const rawText = await response.text()
+    let payload: TagVoteResponse | null = null
+
+    if (rawText.trim()) {
+      try {
+        payload = JSON.parse(rawText) as TagVoteResponse
+      }
+      catch {
+        const statusText = `${response.status} ${response.statusText}`.trim()
+        throw new Error(`タグ投票APIがJSON以外を返しました。URL: ${response.url} / Status: ${statusText}`)
+      }
+    }
+
+    if (!response.ok || !payload?.success) {
+      throw new Error(payload?.error || getTagText('投票に失敗しました', 'Failed to vote'))
+    }
+
+    const nextTags = existingTags.value.slice()
+    const tagIndex = nextTags.findIndex((tagItem) => tagItem.id === tagId)
+    if (tagIndex !== -1) {
+      const tagItem = { ...nextTags[tagIndex] }
+
+      if (payload.action === 'removed') {
+        if (tagItem.user_vote === 'good') {
+          tagItem.good_count = Math.max(0, tagItem.good_count - 1)
+        }
+        else if (tagItem.user_vote === 'bad') {
+          tagItem.bad_count = Math.max(0, tagItem.bad_count - 1)
+        }
+        tagItem.user_vote = null
+      }
+      else if (payload.action === 'updated') {
+        if (tagItem.user_vote === 'good') {
+          tagItem.good_count = Math.max(0, tagItem.good_count - 1)
+          tagItem.bad_count += 1
+        }
+        else if (tagItem.user_vote === 'bad') {
+          tagItem.bad_count = Math.max(0, tagItem.bad_count - 1)
+          tagItem.good_count += 1
+        }
+        tagItem.user_vote = voteType
+      }
+      else if (payload.action === 'created') {
+        if (voteType === 'good') {
+          tagItem.good_count += 1
+        }
+        else {
+          tagItem.bad_count += 1
+        }
+        tagItem.user_vote = voteType
+      }
+
+      nextTags[tagIndex] = tagItem
+      existingTags.value = nextTags
+    }
+  }
+  catch (error) {
+    showTagSnackbar(error instanceof Error ? error.message : getTagText('投票に失敗しました', 'Failed to vote'), 'error')
+  }
+  finally {
+    isVoting.value = null
+  }
+}
+
+const openTagSuggestionDialog = async () => {
+  newTagInput.value = ''
+  tagInputError.value = ''
+  isTagDialogVisible.value = true
+  await fetchExistingTags()
+}
+
+const closeTagDialog = () => {
+  isTagDialogVisible.value = false
+  newTagInput.value = ''
+  tagInputError.value = ''
+}
+
+const submitTagSuggestion = async () => {
+  const trimmed = newTagInput.value.trim()
+  const area = getCurrentTagArea()
+  const pokedexNo = getCurrentTagPokedexNo()
+  if (!trimmed || tagInputError.value) {
+    return
+  }
+
+  if (!area || !pokedexNo) {
+    showTagSnackbar(getTagText('図鑑番号が取得できませんでした', 'Could not resolve Pokedex number'), 'error')
+    return
+  }
+
+  isSubmittingTag.value = true
+
+  try {
+    const response = await fetch(tagApiEndpoint.value, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        area,
+        no: pokedexNo,
+        tag: trimmed
+      })
+    })
+    const rawText = await response.text()
+    let payload: TagSubmitResponse | null = null
+
+    if (rawText.trim()) {
+      try {
+        payload = JSON.parse(rawText) as TagSubmitResponse
+      }
+      catch {
+        const statusText = `${response.status} ${response.statusText}`.trim()
+        throw new Error(`タグ提案APIがJSON以外を返しました。URL: ${response.url} / Status: ${statusText}`)
+      }
+    }
+
+    if (!response.ok || !payload?.success) {
+      throw new Error(payload?.error || getTagText('提案に失敗しました', 'Failed to suggest tag'))
+    }
+
+    showTagSnackbar(
+      getTagText(`タグ「${trimmed}」を提案しました`, `Tag "${trimmed}" suggested successfully`),
+      'success'
+    )
+    await fetchExistingTags()
+    newTagInput.value = ''
+    tagInputError.value = ''
+  }
+  catch (error) {
+    showTagSnackbar(error instanceof Error ? error.message : getTagText('提案に失敗しました', 'Failed to suggest tag'), 'error')
+  }
+  finally {
+    isSubmittingTag.value = false
+  }
+}
 
 const isVersionIconVisible = (versionCode?: string, version?: string): boolean => {
   const iconKey = resolveVersionIconCode(versionCode) || normalizeVersionAssetKey(String(version ?? ''))
@@ -875,6 +1269,21 @@ watch(displayedDescriptionGroups, (groups) => {
 
   expandedGlobalDescriptionKeys.value = expandedGlobalDescriptionKeys.value.filter((groupKey) => groups.some((group) => group.key === groupKey))
 }, { immediate: true })
+
+watch(
+  [() => pageData.value.areaSlug, () => pageData.value.dex, () => activeEntry.value?.id, () => activeEntry.value?.localDex, () => activeEntry.value?.nationalDex],
+  () => {
+    if (!import.meta.client) {
+      return
+    }
+
+    void fetchExistingTags()
+  }
+)
+
+onMounted(() => {
+  void fetchExistingTags()
+})
 
 // 言語切り替え関数
 const selectedLanguageIndex = computed(() => availableLanguages.value.findIndex(lang => lang.key === selectedLanguage.value))
@@ -1196,6 +1605,65 @@ useSeoMeta({
         </div>
       </section>
 
+      <section class="surface section-card tag-section">
+        <div class="section-header tag-section__header">
+          <div>
+            <span class="eyebrow">Tags</span>
+            <h2 class="section-title">{{ getTagText('タグ', 'Tags') }}</h2>
+          </div>
+          <button
+            type="button"
+            class="button-primary button-primary--secondary tag-section__action"
+            @click="openTagSuggestionDialog"
+          >
+            {{ getTagText('タグを提案', 'Suggest Tag') }}
+          </button>
+        </div>
+
+        <p class="tag-section__subtitle">
+          {{ tagDialogSubtitle }}
+        </p>
+
+        <p v-if="isLoadingTags" class="tag-section__status">
+          {{ getTagText('読み込み中...', 'Loading...') }}
+        </p>
+        <p v-else-if="tagsForDisplay.length === 0" class="tag-section__status">
+          {{ getTagText('タグがありません', 'No tags yet') }}
+        </p>
+        <div v-else class="tag-chip-list">
+          <article
+            v-for="tagItem in tagsForDisplay"
+            :key="getTagScopeKey(tagItem)"
+            class="tag-chip"
+          >
+            <button
+              type="button"
+              class="tag-vote-button"
+              :class="{ 'tag-vote-button--active': tagItem.user_vote === 'good' }"
+              :disabled="!tagItem.id || isVoting === tagItem.id"
+              :aria-label="getTagText(`タグ「${tagItem.tag}」にGood投票`, `Vote good for tag ${tagItem.tag}`)"
+              @click="voteTag(tagItem.id, 'good')"
+            >
+              👍
+            </button>
+            <span class="tag-vote-count">{{ tagItem.good_count }}</span>
+            <span v-if="isGlobalArea" class="tag-chip__area">{{ tagItem.area }}</span>
+            <span class="tag-chip__label">{{ tagItem.tag }}</span>
+            <span class="tag-vote-count">{{ tagItem.bad_count }}</span>
+            <button
+              type="button"
+              class="tag-vote-button"
+              :class="{ 'tag-vote-button--active tag-vote-button--danger': tagItem.user_vote === 'bad' }"
+              :disabled="!tagItem.id || isVoting === tagItem.id"
+              :aria-label="getTagText(`タグ「${tagItem.tag}」にBad投票`, `Vote bad for tag ${tagItem.tag}`)"
+              @click="voteTag(tagItem.id, 'bad')"
+            >
+              👎
+            </button>
+          </article>
+        </div>
+      </section>
+
       <AdSenseCard
         slot-type="banner"
         width="100%"
@@ -1221,6 +1689,71 @@ useSeoMeta({
         {{ pageData.message }}
       </p>
     </section>
+
+    <transition name="tag-dialog-fade">
+      <div v-if="isTagDialogVisible" class="tag-dialog-backdrop" @click.self="closeTagDialog">
+        <div class="tag-dialog surface" role="dialog" aria-modal="true" :aria-label="getTagText('タグを提案', 'Suggest Tag')">
+          <div class="tag-dialog__header">
+            <div>
+              <span class="eyebrow">Suggest Tag</span>
+              <h2 class="section-title tag-dialog__title">{{ getTagText('タグを提案', 'Suggest Tag') }}</h2>
+              <p class="tag-dialog__subtitle">{{ tagDialogSubtitle }}</p>
+            </div>
+            <button type="button" class="icon-button tag-dialog__close" :aria-label="getTagText('閉じる', 'Close')" @click="closeTagDialog">
+              ×
+            </button>
+          </div>
+
+          <div class="tag-dialog__body">
+            <div>
+              <span class="eyebrow">Existing Tags</span>
+              <div v-if="scopedExistingTags.length === 0" class="tag-dialog__empty">
+                {{ getTagText('まだタグがありません', 'No tags yet') }}
+              </div>
+              <div v-else class="tag-dialog__existing-list">
+                <span v-for="tagItem in scopedExistingTags" :key="`${getTagScopeKey(tagItem)}-dialog`" class="pill-link tag-dialog__existing-chip">
+                  <span v-if="isGlobalArea" class="tag-dialog__existing-area">{{ tagItem.area }}</span>
+                  <span>{{ tagItem.tag }}</span>
+                </span>
+              </div>
+            </div>
+
+            <div class="tag-dialog__form">
+              <label class="tag-dialog__label" for="tag-suggestion-input">{{ getTagText('新しいタグ', 'New Tag') }}</label>
+              <input
+                id="tag-suggestion-input"
+                v-model="newTagInput"
+                type="text"
+                maxlength="50"
+                class="tag-dialog__input"
+                :placeholder="getTagText('タグを入力...', 'Enter tag...')"
+                @input="validateTagInput"
+                @keydown.enter.prevent="submitTagSuggestion"
+              >
+              <div class="tag-dialog__meta-row">
+                <span class="tag-dialog__counter">{{ newTagInput.trim().length }}/50</span>
+              </div>
+              <p v-if="tagInputError" class="tag-dialog__error">{{ tagInputError }}</p>
+            </div>
+          </div>
+
+          <div class="tag-dialog__actions">
+            <button type="button" class="button-primary button-primary--secondary" @click="closeTagDialog">
+              {{ getTagText('キャンセル', 'Cancel') }}
+            </button>
+            <button type="button" class="button-primary" :disabled="!canSubmitTag" @click="submitTagSuggestion">
+              {{ isSubmittingTag ? getTagText('送信中...', 'Submitting...') : getTagText('提案', 'Suggest') }}
+            </button>
+          </div>
+        </div>
+      </div>
+    </transition>
+
+    <transition name="tag-snackbar-slide">
+      <div v-if="tagSnackbarVisible" class="tag-snackbar" :class="`tag-snackbar--${tagSnackbarTone}`">
+        {{ tagSnackbarMessage }}
+      </div>
+    </transition>
   </div>
 </template>
 
@@ -1501,6 +2034,260 @@ useSeoMeta({
   .language-switcher__mobile,
   .form-switcher__mobile {
     display: none;
+  }
+}
+
+.tag-section {
+  display: grid;
+  gap: 1rem;
+}
+
+.tag-section__header {
+  align-items: center;
+}
+
+.tag-section__action {
+  min-width: 168px;
+}
+
+.tag-section__subtitle,
+.tag-section__status {
+  margin: 0;
+  color: var(--text-soft);
+}
+
+.tag-chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+.tag-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid rgba(25, 118, 210, 0.2);
+  border-radius: 999px;
+  background: var(--primary-soft);
+}
+
+.tag-chip__area {
+  padding: 0.16rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(15, 23, 42, 0.08);
+  color: var(--text-soft);
+  font-size: 0.78rem;
+  text-transform: lowercase;
+}
+
+.tag-chip__label {
+  font-weight: 700;
+  color: var(--primary-strong);
+}
+
+.tag-vote-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(15, 23, 42, 0.08);
+  border-radius: 999px;
+  background: white;
+  transition: transform 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
+}
+
+.tag-vote-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.tag-vote-button:not(:disabled):hover {
+  transform: translateY(-1px);
+}
+
+.tag-vote-button--active {
+  border-color: #16a34a;
+  background: rgba(22, 163, 74, 0.14);
+}
+
+.tag-vote-button--danger.tag-vote-button--active {
+  border-color: #dc2626;
+  background: rgba(220, 38, 38, 0.14);
+}
+
+.tag-vote-count {
+  min-width: 1.2rem;
+  text-align: center;
+  font-size: 0.82rem;
+  color: var(--text-soft);
+}
+
+.tag-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1rem;
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.tag-dialog {
+  display: grid;
+  gap: 1rem;
+  width: min(560px, 100%);
+  padding: 1.25rem;
+}
+
+.tag-dialog__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.tag-dialog__title,
+.tag-dialog__subtitle,
+.tag-dialog__empty,
+.tag-dialog__counter,
+.tag-dialog__error {
+  margin: 0;
+}
+
+.tag-dialog__subtitle,
+.tag-dialog__empty,
+.tag-dialog__counter {
+  color: var(--text-soft);
+}
+
+.tag-dialog__close {
+  border: 1px solid var(--border);
+  background: white;
+  color: var(--text);
+}
+
+.tag-dialog__body,
+.tag-dialog__form {
+  display: grid;
+  gap: 1rem;
+}
+
+.tag-dialog__existing-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.65rem;
+}
+
+.tag-dialog__existing-chip {
+  gap: 0.4rem;
+}
+
+.tag-dialog__existing-area {
+  color: var(--text-soft);
+  text-transform: lowercase;
+}
+
+.tag-dialog__label {
+  font-weight: 700;
+  color: var(--title);
+}
+
+.tag-dialog__input {
+  width: 100%;
+  min-height: 46px;
+  padding: 0.8rem 0.95rem;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: white;
+  color: var(--text);
+}
+
+.tag-dialog__input:focus {
+  outline: 2px solid rgba(25, 118, 210, 0.18);
+  border-color: var(--primary);
+}
+
+.tag-dialog__meta-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.tag-dialog__error {
+  color: #dc2626;
+}
+
+.tag-dialog__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.75rem;
+}
+
+.tag-snackbar {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 90;
+  max-width: min(420px, calc(100vw - 2rem));
+  padding: 0.9rem 1rem;
+  border-radius: 14px;
+  color: white;
+  box-shadow: var(--shadow-strong);
+}
+
+.tag-snackbar--success {
+  background: #16a34a;
+}
+
+.tag-snackbar--error {
+  background: #dc2626;
+}
+
+.tag-dialog-fade-enter-active,
+.tag-dialog-fade-leave-active,
+.tag-snackbar-slide-enter-active,
+.tag-snackbar-slide-leave-active {
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.tag-dialog-fade-enter-from,
+.tag-dialog-fade-leave-to,
+.tag-snackbar-slide-enter-from,
+.tag-snackbar-slide-leave-to {
+  opacity: 0;
+}
+
+.tag-dialog-fade-enter-from .tag-dialog,
+.tag-dialog-fade-leave-to .tag-dialog {
+  transform: translateY(8px);
+}
+
+.tag-snackbar-slide-enter-from,
+.tag-snackbar-slide-leave-to {
+  transform: translateY(10px);
+}
+
+@media (max-width: 720px) {
+  .tag-section__header {
+    align-items: stretch;
+  }
+
+  .tag-section__action {
+    width: 100%;
+  }
+
+  .tag-dialog {
+    padding: 1rem;
+  }
+
+  .tag-dialog__actions {
+    flex-direction: column-reverse;
+  }
+
+  .tag-dialog__actions .button-primary {
+    width: 100%;
   }
 }
 </style>
