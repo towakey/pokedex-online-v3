@@ -987,52 +987,6 @@ useSeoMeta({
         </div>
       </section>
 
-      <section v-if="hasMultipleEntries" class="surface section-card form-switcher">
-        <div class="section-header">
-          <div>
-            <span class="eyebrow">Forms</span>
-            <h2 class="section-title">フォーム切り替え</h2>
-          </div>
-        </div>
-
-        <!-- Desktop: 通常のリスト表示 -->
-        <div class="form-switcher__list form-switcher__list--desktop">
-          <NuxtLink
-            v-for="entry in formEntries"
-            :key="entry.id"
-            :to="entry.to"
-            class="pill-link form-switcher__link"
-            :class="{ 'pill-link--active': entry.id === activeEntry?.id }"
-          >
-            <span>{{ entry.displayLabel }}</span>
-            <strong>{{ entry.typeLabel }}</strong>
-          </NuxtLink>
-        </div>
-
-        <!-- Mobile: 左右ボタン切り替え -->
-        <div class="form-switcher__mobile">
-          <button
-            type="button"
-            class="form-switcher__nav-btn"
-            @click="prevForm"
-            aria-label="前のフォーム"
-          >
-            ＜
-          </button>
-          <span class="form-switcher__current">
-            {{ activeEntry?.displayLabel }}
-          </span>
-          <button
-            type="button"
-            class="form-switcher__nav-btn"
-            @click="nextForm"
-            aria-label="次のフォーム"
-          >
-            ＞
-          </button>
-        </div>
-      </section>
-
       <section class="hero surface">
         <div class="hero__content">
           <span class="eyebrow">{{ pageData.areaLabel }}</span>
@@ -1065,6 +1019,46 @@ useSeoMeta({
           >
           <div v-else class="pokemon-hero__fallback">
             {{ currentDexLabel }}
+          </div>
+        </div>
+
+        <!-- フォーム切り替え: heroセクション内に配置 -->
+        <div v-if="hasMultipleEntries" class="hero__form-switcher">
+          <!-- Desktop: 通常のリスト表示 -->
+          <div class="form-switcher__list form-switcher__list--desktop">
+            <NuxtLink
+              v-for="entry in formEntries"
+              :key="entry.id"
+              :to="entry.to"
+              class="pill-link form-switcher__link"
+              :class="{ 'pill-link--active': entry.id === activeEntry?.id }"
+            >
+              <span>{{ entry.displayLabel }}</span>
+              <strong>{{ entry.typeLabel }}</strong>
+            </NuxtLink>
+          </div>
+
+          <!-- Mobile: 左右ボタン切り替え -->
+          <div class="form-switcher__mobile">
+            <button
+              type="button"
+              class="form-switcher__nav-btn"
+              @click="prevForm"
+              aria-label="前のフォーム"
+            >
+              ＜
+            </button>
+            <span class="form-switcher__current">
+              {{ activeEntry?.displayLabel }}
+            </span>
+            <button
+              type="button"
+              class="form-switcher__nav-btn"
+              @click="nextForm"
+              aria-label="次のフォーム"
+            >
+              ＞
+            </button>
           </div>
         </div>
       </section>

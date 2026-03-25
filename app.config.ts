@@ -23,7 +23,7 @@ export default defineAppConfig({
       unova_bw: ['v05_00.png', 'v05_01.png'],
       unova_b2w2: ['v05_10.png', 'v05_11.png'],
       central_kalos: ['v06_00.png', 'v06_01.png'],
-      coastal_kalos: ['v06_00.png', 'v06_01.png'],
+      coast_kalos: ['v06_00.png', 'v06_01.png'],
       mountain_kalos: ['v06_00.png', 'v06_01.png'],
       hoenn_oras: ['v06_30.png', 'v06_31.png'],
       alola_sm: ['v07_00.png', 'v07_01.png'],

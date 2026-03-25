@@ -484,6 +484,11 @@ button {
   font-weight: 700;
 }
 
+.hero__form-switcher {
+  grid-column: 1 / -1;
+  margin-top: 8px;
+}
+
 .search-panel,
 .filter-card {
   display: grid;
@@ -902,7 +907,6 @@ button {
 }
 
 @media (max-width: 960px) {
-  .hero,
   .summary-grid,
   .detail-grid,
   .pokemon-grid {
@@ -927,6 +931,10 @@ button {
   .section-header,
   .filter-card__header {
     align-items: flex-start;
+  }
+
+  .hero {
+    grid-template-columns: 1fr;
   }
 
   .hero,
