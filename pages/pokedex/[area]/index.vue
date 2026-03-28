@@ -19,6 +19,12 @@ interface RegionPageData {
   message: string
 }
 
+interface RegionGridEntry {
+  type: 'pokemon' | 'ad'
+  key: string
+  pokemon?: RegionPokemonItem
+}
+
 const appConfig = useSiteAppConfig()
 
 const createFallbackMeta = (slug: string): RegionMeta => ({
@@ -234,6 +240,30 @@ const filteredItems = computed(() => {
     return matchesQuery && matchesTypes
   })
 })
+const adInsertInterval = 10
+const filteredGridEntries = computed<RegionGridEntry[]>(() => {
+  const entries: RegionGridEntry[] = []
+
+  filteredItems.value.forEach((pokemon, index) => {
+    entries.push({
+      type: 'pokemon',
+      key: `pokemon-${pageData.value.meta.slug}-${pokemon.localDex}-${pokemon.id}`,
+      pokemon
+    })
+
+    const currentDex = pokemon.localDex
+    const nextDex = filteredItems.value[index + 1]?.localDex
+
+    if (currentDex > 0 && currentDex % adInsertInterval === 0 && nextDex !== currentDex) {
+      entries.push({
+        type: 'ad',
+        key: `ad-${pageData.value.meta.slug}-${currentDex}`
+      })
+    }
+  })
+
+  return entries
+})
 
 const toggleType = (type: string) => {
   selectedTypes.value = selectedTypes.value.includes(type)
@@ -353,13 +383,23 @@ useSeoMeta({
       </div>
 
       <div class="pokemon-grid">
-        <PokemonCard
-          v-for="pokemon in filteredItems"
-          :key="`${pageData.meta.slug}-${pokemon.localDex}-${pokemon.id}`"
-          :pokemon="pokemon"
-          :subtitle="`図鑑No. ${String(pokemon.localDex).padStart(3, '0')}`"
-          :to="pokemon.detailPath"
-        />
+        <template v-for="entry in filteredGridEntries" :key="entry.key">
+          <PokemonCard
+            v-if="entry.type === 'pokemon' && entry.pokemon"
+            :pokemon="entry.pokemon"
+            :subtitle="`図鑑No. ${String(entry.pokemon.localDex).padStart(3, '0')}`"
+            :to="entry.pokemon.detailPath"
+          />
+          <div v-else class="pokemon-grid__ad">
+            <AdSenseCard
+              slot-type="rectangle"
+              width="100%"
+              :height="96"
+              label-type="sponsored"
+              card-class="pokemon-grid__ad-card"
+            />
+          </div>
+        </template>
       </div>
     </section>
 

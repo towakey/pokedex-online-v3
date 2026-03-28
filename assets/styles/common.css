@@ -666,6 +666,16 @@ button {
   gap: 16px;
 }
 
+.pokemon-grid__ad {
+  display: grid;
+  height: 100%;
+}
+
+.pokemon-grid__ad-card {
+  height: 100%;
+  min-height: 140px;
+}
+
 .pokemon-card {
   display: grid;
   grid-template-columns: 96px minmax(0, 1fr);

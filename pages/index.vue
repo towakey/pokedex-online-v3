@@ -22,6 +22,12 @@ interface HomePageData {
   message: string
 }
 
+interface HomeGridEntry {
+  type: 'pokemon' | 'ad'
+  key: string
+  pokemon?: HomePokemonItem
+}
+
 const appConfig = useSiteAppConfig()
 const createDefaultPageData = (): HomePageData => ({
   ready: false,
@@ -176,6 +182,33 @@ const filteredItems = computed<HomePokemonItem[]>(() => {
 })
 
 const visibleItems = computed(() => filteredItems.value.slice(0, visibleCount.value))
+const adInsertInterval = 10
+const visibleGridEntries = computed<HomeGridEntry[]>(() => {
+  const entries: HomeGridEntry[] = []
+  const items = filteredItems.value
+  const limit = Math.min(visibleCount.value, items.length)
+
+  for (let index = 0; index < limit; index += 1) {
+    const pokemon = items[index]
+    entries.push({
+      type: 'pokemon',
+      key: `pokemon-${pokemon.id}`,
+      pokemon
+    })
+
+    const currentDex = pokemon.dex
+    const nextDex = items[index + 1]?.dex
+
+    if (currentDex > 0 && currentDex % adInsertInterval === 0 && nextDex !== currentDex) {
+      entries.push({
+        type: 'ad',
+        key: `ad-${currentDex}`
+      })
+    }
+  }
+
+  return entries
+})
 const canLoadMore = computed(() => visibleItems.value.length < filteredItems.value.length)
 
 watch(searchQuery, () => {
@@ -286,12 +319,22 @@ useSeoMeta({
       </div>
 
       <div class="pokemon-grid">
-        <PokemonCard
-          v-for="pokemon in visibleItems"
-          :key="pokemon.id"
-          :pokemon="pokemon"
-          :to="pokemon.detailPath"
-        />
+        <template v-for="entry in visibleGridEntries" :key="entry.key">
+          <PokemonCard
+            v-if="entry.type === 'pokemon' && entry.pokemon"
+            :pokemon="entry.pokemon"
+            :to="entry.pokemon.detailPath"
+          />
+          <div v-else class="pokemon-grid__ad">
+            <AdSenseCard
+              slot-type="rectangle"
+              width="100%"
+              :height="96"
+              label-type="sponsored"
+              card-class="pokemon-grid__ad-card"
+            />
+          </div>
+        </template>
       </div>
 
       <div v-if="canLoadMore" class="load-more-row">
