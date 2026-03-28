@@ -1,17 +1,30 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import type { PokemonIndexItem } from '~/composables/usePokedex'
 
-defineProps<{
+const props = defineProps<{
   pokemon: PokemonIndexItem
   subtitle?: string
+  to?: string
 }>()
+
+const displayNumber = computed(() => {
+  const parsedDex = Number.parseInt(String(props.pokemon.dex ?? props.pokemon.id), 10)
+  if (Number.isFinite(parsedDex) && parsedDex > 0) {
+    return String(parsedDex).padStart(4, '0')
+  }
+
+  return String(props.pokemon.id)
+})
+
+const linkTarget = computed(() => props.to ?? `/pokemon/${props.pokemon.id}`)
 </script>
 
 <template>
-  <NuxtLink :to="`/pokemon/${pokemon.id}`" class="pokemon-card">
+  <NuxtLink :to="linkTarget" class="pokemon-card">
     <div class="pokemon-card__meta">
       <span class="eyebrow">
-        {{ subtitle ?? `全国No. ${String(pokemon.id).padStart(4, '0')}` }}
+        {{ subtitle ?? `全国No. ${displayNumber}` }}
       </span>
       <span class="pokemon-card__arrow">→</span>
     </div>
@@ -19,7 +32,7 @@ defineProps<{
     <div class="pokemon-card__body">
       <div>
         <p class="pokemon-card__number">
-          #{{ String(pokemon.id).padStart(4, '0') }}
+          #{{ displayNumber }}
         </p>
         <h3 class="pokemon-card__title">
           {{ pokemon.name }}

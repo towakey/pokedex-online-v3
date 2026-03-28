@@ -66,6 +66,9 @@ const sharePage = async () => {
         <NuxtLink :to="appConfig.navigation.search" class="nav-link nav-link--light">
           検索
         </NuxtLink>
+        <NuxtLink :to="appConfig.navigation.tagSearch" class="nav-link nav-link--light">
+          タグ検索
+        </NuxtLink>
         <NuxtLink :to="appConfig.navigation.pokedex" class="nav-link nav-link--light">
           ポケモン図鑑
         </NuxtLink>

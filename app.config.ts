@@ -42,6 +42,7 @@ export default defineAppConfig({
     home: '/',
     gallery: '/gallery',
     pokedex: '/pokedex',
-    search: '/search'
+    search: '/search',
+    tagSearch: '/search/tag'
   }
 })
