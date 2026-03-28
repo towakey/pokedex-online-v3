@@ -3,9 +3,30 @@ setlocal
 
 pushd "%~dp0"
 
+if not exist ".env" (
+  echo .env が見つかりません。
+  popd
+  exit /b 1
+)
+
+call load-env.bat ".env"
+if errorlevel 1 (
+  popd
+  exit /b 1
+)
+
+echo Running generate...
+call npm run generate
+if errorlevel 1 (
+  echo.
+  echo generate に失敗しました。
+  popd
+  exit /b %errorlevel%
+)
+
 if not exist "dist\index.html" (
   echo dist\index.html が見つかりません。
-  echo 先に npm run generate を実行してください。
+  echo generate 実行後も dist\index.html が見つかりません。
   popd
   exit /b 1
 )
