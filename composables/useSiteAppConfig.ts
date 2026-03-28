@@ -14,6 +14,7 @@ interface SiteAppConfig {
     gallery: string
     pokedex: string
     search: string
+    tagSearch: string
   }
 }
 

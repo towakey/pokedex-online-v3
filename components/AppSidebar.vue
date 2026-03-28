@@ -23,6 +23,10 @@ const primaryItems = [
   {
     label: '検索',
     to: appConfig.navigation.search
+  },
+  {
+    label: 'タグ検索',
+    to: appConfig.navigation.tagSearch
   }
 ]
 
