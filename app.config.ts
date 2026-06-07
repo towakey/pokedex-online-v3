@@ -25,7 +25,7 @@ export default defineAppConfig({
       central_kalos: ['v06_00.png', 'v06_01.png'],
       coast_kalos: ['v06_00.png', 'v06_01.png'],
       mountain_kalos: ['v06_00.png', 'v06_01.png'],
-      hoenn_oras: ['v06_30.png', 'v06_31.png'],
+      hoenn_oras: ['v06_10.png', 'v06_11.png'],
       alola_sm: ['v07_00.png', 'v07_01.png'],
       alola_usum: ['v07_10.png', 'v07_11.png'],
       galar: ['v08_00.png', 'v08_01.png'],
@@ -35,7 +35,8 @@ export default defineAppConfig({
       paldea: ['v09_00.png', 'v09_01.png'],
       kitakami: ['v09_00.png', 'v09_01.png'],
       blueberry: ['v09_00.png', 'v09_01.png'],
-      lumiose: ['v09_10.png']
+      lumiose: ['v09_10.png'],
+      hyperspace_lumiose: ['v09_10.png']
     } as Record<string, string[]>
   },
   navigation: {

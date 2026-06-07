@@ -48,6 +48,24 @@ export interface RegionMeta {
 
 const GLOBAL_REGION_SLUG = 'global'
 const LEGACY_GLOBAL_REGION_SLUG = 'national'
+const REGION_LABEL_FALLBACKS: Record<string, string> = {
+  global: '全国図鑑',
+  kanto: 'カントー',
+  johto: 'ジョウト',
+  hoenn: 'ホウエン',
+  sinnoh: 'シンオウ',
+  sinnoh_bdsp: 'シンオウ図鑑 (BDSP)',
+  unova: 'イッシュ',
+  kalos: 'カロス',
+  alola: 'アローラ',
+  galar: 'ガラル',
+  hisui: 'ヒスイ',
+  paldea: 'パルデア',
+  kitakami: 'キタカミ',
+  blueberry: 'ブルーベリー',
+  lumiose: 'ミアレ',
+  hyperspace_lumiose: '異次元'
+}
 
 const normalizeBaseURL = (value?: string): string => {
   const baseURL = value?.trim() || '/'
@@ -75,6 +93,23 @@ const normalizeRegionSlug = (value?: string): string => {
   }
 
   return slug === LEGACY_GLOBAL_REGION_SLUG ? GLOBAL_REGION_SLUG : slug
+}
+
+const formatPokedexTitle = (area?: string, areaLabel?: string): string => {
+  const normalizedArea = normalizeRegionSlug(area)
+  const resolvedLabel = String(areaLabel ?? '').trim()
+    || REGION_LABEL_FALLBACKS[normalizedArea]
+    || normalizedArea
+
+  if (!resolvedLabel) {
+    return 'ポケモン図鑑'
+  }
+
+  if (resolvedLabel.includes('図鑑')) {
+    return resolvedLabel
+  }
+
+  return `${resolvedLabel}図鑑`
 }
 
 const formatPokemonRouteId = (value: number | string): string => {
@@ -185,6 +220,7 @@ export const usePokedex = () => {
     loadPokemon,
     loadRegion,
     loadRegions,
+    formatPokedexTitle,
     normalizeRegionSlug,
     parsePokemonDexNumber,
     formatPokemonNumber,
