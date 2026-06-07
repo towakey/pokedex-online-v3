@@ -6,6 +6,12 @@ const pokedexApiBaseURL = process.env.NUXT_PUBLIC_POKEDEX_API_BASE_URL || ''
 const generatedDataDir = resolve(process.cwd(), 'generated-data')
 const pokemonDir = resolve(generatedDataDir, 'pokemon')
 const regionDir = resolve(generatedDataDir, 'region')
+const prerenderConcurrencyValue = process.env.NUXT_PRERENDER_CONCURRENCY
+const prerenderConcurrency = prerenderConcurrencyValue ? Number(prerenderConcurrencyValue) : undefined
+const prerenderCrawlLinks = process.env.NUXT_PRERENDER_CRAWL_LINKS === 'true'
+const prerenderConcurrencyOptions = prerenderConcurrency !== undefined && Number.isFinite(prerenderConcurrency) && prerenderConcurrency > 0
+  ? { concurrency: prerenderConcurrency }
+  : {}
 
 interface RegionRouteEntry {
   dex: number
@@ -102,14 +108,15 @@ export default defineNuxtConfig({
   },
   nitro: {
     prerender: {
-      crawlLinks: true,
-      routes: createPrerenderRoutes()
+      crawlLinks: prerenderCrawlLinks,
+      routes: createPrerenderRoutes(),
+      ...prerenderConcurrencyOptions
     },
     publicAssets: [
       {
         dir: generatedDataDir,
         baseURL: '/data',
-        maxAge: 60 * 60 * 24 * 7
+        maxAge: 0
       }
     ]
   },

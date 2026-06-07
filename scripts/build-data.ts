@@ -63,6 +63,7 @@ const REGION_LABELS: Record<string, string> = {
   johto: 'ジョウト',
   hoenn: 'ホウエン',
   sinnoh: 'シンオウ',
+  sinnoh_bdsp: 'シンオウ図鑑 (BDSP)',
   unova: 'イッシュ',
   kalos: 'カロス',
   alola: 'アローラ',
@@ -70,7 +71,9 @@ const REGION_LABELS: Record<string, string> = {
   hisui: 'ヒスイ',
   paldea: 'パルデア',
   kitakami: 'キタカミ',
-  blueberry: 'ブルーベリー'
+  blueberry: 'ブルーベリー',
+  lumiose: 'ミアレ',
+  hyperspace_lumiose: '異次元'
 }
 
 const rootDir = process.cwd()
@@ -85,6 +88,7 @@ const sourceDescriptionPath = resolve(sourcePokedexDir, 'description_map.json')
 
 interface RegionConfig {
   display_jpn: string
+  label_jpn?: string
   version_key: string
   pokedex_index: number
 }
@@ -357,7 +361,7 @@ const createVersionRegionLinkLookup = (
         currentLinks.push({
           regionSlug: slug,
           regionDex: localDexNumber,
-          regionLabel: regionConfig.display_jpn || createRegionLabel(slug)
+          regionLabel: regionConfig.label_jpn || regionConfig.display_jpn || createRegionLabel(slug)
         })
       }
     }
@@ -1064,7 +1068,7 @@ const regionMeta: RegionMeta[] = [
   },
   ...configuredRegionEntries.map(([slug, regionConfig]) => ({
     slug,
-    label: regionConfig.display_jpn || createRegionLabel(slug),
+    label: regionConfig.label_jpn || regionConfig.display_jpn || createRegionLabel(slug),
     count: regionMap.get(slug)?.length ?? 0
   }))
 ]
