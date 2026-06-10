@@ -25,7 +25,7 @@ const closeDialog = () => {
   selectedItem.value = null
 }
 
-useSeoMeta({
+useSiteSeo({
   title: 'ギャラリー',
   description: 'ポケモンのある風景の写真ギャラリーです。'
 })

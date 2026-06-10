@@ -456,7 +456,7 @@ onMounted(async () => {
   ])
 })
 
-useSeoMeta({
+useSiteSeo({
   title: 'タグ検索',
   description: '登録済みタグからポケモンを探せるページです。'
 })
