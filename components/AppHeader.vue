@@ -1,41 +1,127 @@
 <script setup lang="ts">
 import { useSiteAppConfig } from '~/composables/useSiteAppConfig'
 
+interface HeaderSharePayload {
+  title: string
+  text: string
+  url?: string
+  clipboardText: string
+}
+
 const appConfig = useSiteAppConfig()
 const drawerOpen = useState('app-drawer-open', () => false)
+const route = useRoute()
+const { formatPokedexTitle, normalizeRegionSlug } = usePokedex()
 
 const openDrawer = () => {
   drawerOpen.value = !drawerOpen.value
 }
 
-const sharePage = async () => {
-  if (!import.meta.client) {
-    return
+const isPokedexDetailPage = (): boolean => {
+  if (typeof route.params.id === 'string' && route.params.id.trim()) {
+    return true
   }
 
-  const payload = {
+  const pathSegments = route.path
+    .split('?')[0]
+    .split('#')[0]
+    .split('/')
+    .filter(Boolean)
+
+  return pathSegments[0] === 'pokedex' && Boolean(pathSegments[1] && pathSegments[2])
+}
+
+const getCurrentPokedexArea = (): string => {
+  const routeArea = route.params.area
+  if (typeof routeArea === 'string' && routeArea.trim()) {
+    return normalizeRegionSlug(routeArea)
+  }
+
+  const routeRegion = route.params.region
+  if (typeof routeRegion === 'string' && routeRegion.trim()) {
+    return normalizeRegionSlug(routeRegion)
+  }
+
+  const pokedexSegments = route.path
+    .split('?')[0]
+    .split('#')[0]
+    .split('/')
+    .filter(Boolean)
+
+  if (pokedexSegments[0] === 'pokedex' && pokedexSegments[1]) {
+    return normalizeRegionSlug(pokedexSegments[1])
+  }
+
+  if (pokedexSegments[0] === 'region' && pokedexSegments[1]) {
+    return normalizeRegionSlug(pokedexSegments[1])
+  }
+
+  return ''
+}
+
+const getCurrentPokedexLabel = (): string => {
+  if (!import.meta.client) {
+    return ''
+  }
+
+  if (isPokedexDetailPage()) {
+    return document.querySelector('.hero .hero__content .eyebrow')?.textContent?.trim() ?? ''
+  }
+
+  return document.querySelector('.hero .hero__title')?.textContent?.trim() ?? ''
+}
+
+const getCurrentPokemonName = (): string => {
+  if (!import.meta.client) {
+    return ''
+  }
+
+  const heroTitle = document.querySelector('.hero__title')?.textContent?.trim()
+  if (heroTitle) {
+    return heroTitle
+  }
+
+  const pageTitle = document.title.split('|')[0]?.trim() ?? ''
+  return pageTitle.replace(/\s+#\d+(?:\s+.*)?$/, '').trim()
+}
+
+const buildSharePayload = (): HeaderSharePayload => {
+  const currentUrl = window.location.href
+  const area = getCurrentPokedexArea()
+
+  if (area) {
+    const pokedexTitle = formatPokedexTitle(area, getCurrentPokedexLabel())
+    const pokemonName = getCurrentPokemonName()
+    const shareTitle = isPokedexDetailPage() && pokemonName ? `${pokemonName} -${pokedexTitle}` : pokedexTitle
+    const shareText = shareTitle
+
+    return {
+      title: shareTitle,
+      text: shareText,
+      url: currentUrl,
+      clipboardText: `${shareTitle} ${currentUrl}`.trim()
+    }
+  }
+
+  return {
     title: document.title,
     text: appConfig.site.description,
-    url: window.location.href
-  }
-
-  if (navigator.share) {
-    try {
-      await navigator.share(payload)
-      return
-    }
-    catch {
-    }
-  }
-
-  try {
-    if (navigator.clipboard?.writeText) {
-      await navigator.clipboard.writeText(window.location.href)
-    }
-  }
-  catch {
+    url: currentUrl,
+    clipboardText: currentUrl
   }
 }
+const headerSharePayload = computed<HeaderSharePayload>(() => {
+  if (!import.meta.client) {
+    return {
+      title: appConfig.site.name,
+      text: appConfig.site.description,
+      url: '',
+      clipboardText: ''
+    }
+  }
+
+  return buildSharePayload()
+})
 </script>
 
 <template>
@@ -74,9 +160,16 @@ const sharePage = async () => {
         </NuxtLink>
       </nav>
 
-      <button type="button" class="icon-button icon-button--light" aria-label="共有する" @click="sharePage">
-        ⤴
-      </button>
+      <ShareMenu
+        trigger="icon"
+        tone="light"
+        align="right"
+        :title="headerSharePayload.title"
+        :text="headerSharePayload.text"
+        :url="headerSharePayload.url"
+        :clipboard-text="headerSharePayload.clipboardText"
+        aria-label="共有する"
+      />
     </div>
   </header>
 </template>
