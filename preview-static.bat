@@ -1,27 +1,35 @@
 @echo off
 setlocal
 
+set "SERVE_ONLY=0"
+if /I "%~1"=="--serve-only" (
+  set "SERVE_ONLY=1"
+  shift
+)
+
 pushd "%~dp0"
 
-if not exist ".env" (
-  echo .env が見つかりません。
-  popd
-  exit /b 1
-)
+if not "%SERVE_ONLY%"=="1" (
+  if not exist ".env" (
+    echo .env が見つかりません。
+    popd
+    exit /b 1
+  )
 
-call load-env.bat ".env"
-if errorlevel 1 (
-  popd
-  exit /b 1
-)
+  call load-env.bat ".env"
+  if errorlevel 1 (
+    popd
+    exit /b 1
+  )
 
-echo Running generate...
-call npm run generate
-if errorlevel 1 (
-  echo.
-  echo generate に失敗しました。
-  popd
-  exit /b %errorlevel%
+  echo Running generate...
+  call npm run generate
+  if errorlevel 1 (
+    echo.
+    echo generate に失敗しました。
+    popd
+    exit /b %errorlevel%
+  )
 )
 
 if not exist "dist\index.html" (

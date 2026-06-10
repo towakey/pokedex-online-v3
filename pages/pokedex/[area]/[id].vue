@@ -84,6 +84,13 @@ interface GlobalDescriptionGroup {
   versions: GlobalDescriptionGroupVersion[]
 }
 
+interface DetailSharePayload {
+  title: string
+  text: string
+  url?: string
+  clipboardText: string
+}
+
 interface LanguageOption {
   key: string
   label: string
@@ -136,6 +143,7 @@ const {
   buildPokemonDetailPath,
   formatKilograms,
   formatMeters,
+  formatPokedexTitle,
   formatPokemonNumber,
   formatPokemonRouteId,
   getPokemonImagePath,
@@ -741,6 +749,17 @@ const currentDexLabel = computed(() => pageData.value.dex !== null ? formatPokem
 const backPath = computed(() => `${appConfig.navigation.pokedex}/${pageData.value.areaSlug || appConfig.site.defaultArea}`)
 const isGlobalArea = computed(() => pageData.value.areaSlug === 'global')
 const hasMultipleEntries = computed(() => pageData.value.entries.length > 1)
+const currentPokedexTitle = computed(() => formatPokedexTitle(pageData.value.areaSlug, pageData.value.areaLabel))
+const currentShareTitle = computed(() => {
+  const pokemonName = displayPokemonName.value.trim()
+  const pokedexTitle = currentPokedexTitle.value.trim()
+
+  if (pokemonName && pokedexTitle) {
+    return `${pokemonName} -${pokedexTitle}`
+  }
+
+  return pokemonName || pokedexTitle || 'ポケモン図鑑'
+})
 const expandedGlobalDescriptionKeys = ref<string[]>([])
 const breadcrumbItems = computed(() => [
   { label: 'ホーム', to: appConfig.navigation.home },
@@ -905,6 +924,66 @@ const showTagSnackbar = (message: string, tone: 'success' | 'error' = 'success')
   tagSnackbarTimer = setTimeout(() => {
     tagSnackbarVisible.value = false
   }, 3000)
+}
+
+const normalizeShareDescriptionText = (value: string): string => String(value ?? '')
+  .replace(/<br\s*\/?>/gi, '\n')
+  .replace(/<rp>.*?<\/rp>/g, '')
+  .replace(/<rt>.*?<\/rt>/g, '')
+  .replace(/<[^>]+>/g, '')
+  .replace(/\r\n?/g, '\n')
+  .split('\n')
+  .map((line) => line.replace(/\s+/g, ' ').trim())
+  .filter(Boolean)
+  .join('\n')
+
+const getCurrentShareUrl = (): string => {
+  if (!import.meta.client) {
+    return ''
+  }
+
+  return window.location.href
+}
+
+const buildPageShareText = (): string => {
+  return currentShareTitle.value
+}
+
+const buildDescriptionShareText = (description: string): string => {
+  const normalizedDescription = normalizeShareDescriptionText(description)
+  return [normalizedDescription, currentShareTitle.value].filter(Boolean).join('\n')
+}
+
+const buildPageSharePayload = computed<DetailSharePayload>(() => {
+  const currentUrl = getCurrentShareUrl()
+  const text = buildPageShareText()
+
+  return {
+    title: currentShareTitle.value,
+    text,
+    url: currentUrl,
+    clipboardText: [text, currentUrl].filter(Boolean).join(' ')
+  }
+})
+
+const buildDescriptionSharePayload = (description: string): DetailSharePayload => {
+  const currentUrl = getCurrentShareUrl()
+  const text = buildDescriptionShareText(description)
+
+  return {
+    title: currentShareTitle.value,
+    text,
+    url: currentUrl,
+    clipboardText: [text, currentUrl].filter(Boolean).join('\n')
+  }
+}
+
+const handleShareCopied = () => {
+  showTagSnackbar(getTagText('共有内容をコピーしました', 'Share text copied to clipboard'), 'success')
+}
+
+const handleShareError = () => {
+  showTagSnackbar(getTagText('共有に失敗しました', 'Failed to share'), 'error')
 }
 
 const getCurrentTagArea = (): string => pageData.value.areaSlug || appConfig.site.defaultArea
@@ -1312,7 +1391,7 @@ const nextForm = () => {
 }
 
 useSeoMeta({
-  title: () => pokemon.value ? `${displayPokemonName.value} ${currentDexLabel.value}` : 'ポケモン詳細',
+  title: () => pokemon.value ? currentShareTitle.value : 'ポケモン詳細',
   description: () => descriptionText.value || '個別ポケモンデータを静的 JSON から読み込む詳細ページです。'
 })
 
@@ -1398,7 +1477,24 @@ useSeoMeta({
 
       <section class="hero surface">
         <div class="hero__content">
-          <span class="eyebrow">{{ pageData.areaLabel }}</span>
+          <div class="detail-hero__meta-row">
+            <span class="eyebrow">{{ pageData.areaLabel }}</span>
+            <ShareMenu
+              trigger="button"
+              tone="secondary"
+              align="right"
+              button-class="detail-share-button"
+              :title="buildPageSharePayload.title"
+              :text="buildPageSharePayload.text"
+              :url="buildPageSharePayload.url"
+              :clipboard-text="buildPageSharePayload.clipboardText"
+              :language="tagUiLanguage"
+              :button-label="getTagText('共有', 'Share')"
+              :aria-label="getTagText('このページを共有', 'Share this page')"
+              @copied="handleShareCopied"
+              @error="handleShareError"
+            />
+          </div>
           <p class="hero__description hero__description--tight">
             {{ currentDexLabel }}
           </p>
@@ -1550,21 +1646,38 @@ useSeoMeta({
                     >
                     <strong class="global-description-entry__title">{{ versionEntry.label }}</strong>
                   </div>
-                  <div
-                    v-if="isGlobalArea && versionEntry.regionLinks.length > 0"
-                    class="global-description-entry__regional-numbers"
-                  >
-                    <NuxtLink
-                      v-for="regionLink in versionEntry.regionLinks"
-                      :key="`${versionEntry.key}-${regionLink.key}`"
-                      :to="regionLink.to"
-                      class="regional-number-chip regional-number-chip--link"
-                      :title="`${regionLink.label} ${String(regionLink.dex).padStart(4, '0')}へ移動`"
-                      @click.stop
+                  <div class="global-description-entry__header-actions">
+                    <ShareMenu
+                      trigger="button"
+                      tone="secondary"
+                      align="right"
+                      button-class="detail-share-button detail-share-button--compact"
+                      :title="buildDescriptionSharePayload(versionEntry.description).title"
+                      :text="buildDescriptionSharePayload(versionEntry.description).text"
+                      :url="buildDescriptionSharePayload(versionEntry.description).url"
+                      :clipboard-text="buildDescriptionSharePayload(versionEntry.description).clipboardText"
+                      :language="tagUiLanguage"
+                      :button-label="getTagText('共有', 'Share')"
+                      :aria-label="getTagText(`${versionEntry.label}の図鑑説明を共有`, `Share ${versionEntry.label} dex entry`)"
+                      @copied="handleShareCopied"
+                      @error="handleShareError"
+                    />
+                    <div
+                      v-if="isGlobalArea && versionEntry.regionLinks.length > 0"
+                      class="global-description-entry__regional-numbers"
                     >
-                      <span class="regional-number-chip__label">{{ regionLink.label }}</span>
-                      <span class="regional-number-chip__value">No.{{ String(regionLink.dex).padStart(4, '0') }}</span>
-                    </NuxtLink>
+                      <NuxtLink
+                        v-for="regionLink in versionEntry.regionLinks"
+                        :key="`${versionEntry.key}-${regionLink.key}`"
+                        :to="regionLink.to"
+                        class="regional-number-chip regional-number-chip--link"
+                        :title="`${regionLink.label} ${String(regionLink.dex).padStart(4, '0')}へ移動`"
+                        @click.stop
+                      >
+                        <span class="regional-number-chip__label">{{ regionLink.label }}</span>
+                        <span class="regional-number-chip__value">No.{{ String(regionLink.dex).padStart(4, '0') }}</span>
+                      </NuxtLink>
+                    </div>
                   </div>
                 </div>
                 <p class="detail-description" v-html="versionEntry.html" />
@@ -1580,6 +1693,21 @@ useSeoMeta({
             <span class="eyebrow">Dex Entry</span>
             <h2 class="section-title">図鑑説明</h2>
           </div>
+          <ShareMenu
+            trigger="button"
+            tone="secondary"
+            align="right"
+            button-class="detail-share-button detail-share-button--compact"
+            :title="buildDescriptionSharePayload(descriptionText).title"
+            :text="buildDescriptionSharePayload(descriptionText).text"
+            :url="buildDescriptionSharePayload(descriptionText).url"
+            :clipboard-text="buildDescriptionSharePayload(descriptionText).clipboardText"
+            :language="tagUiLanguage"
+            :button-label="getTagText('共有', 'Share')"
+            :aria-label="getTagText('この図鑑説明を共有', 'Share this dex entry')"
+            @copied="handleShareCopied"
+            @error="handleShareError"
+          />
         </div>
         <p class="detail-description" v-html="descriptionHtml" />
       </section>
@@ -1700,7 +1828,9 @@ useSeoMeta({
               <p class="tag-dialog__subtitle">{{ tagDialogSubtitle }}</p>
             </div>
             <button type="button" class="icon-button tag-dialog__close" :aria-label="getTagText('閉じる', 'Close')" @click="closeTagDialog">
-              ×
+              <svg viewBox="0 0 24 24" class="icon-button__svg icon-button__svg--close" aria-hidden="true">
+                <path fill="currentColor" d="M18.3 5.71 12 12.01l-6.3-6.3-1.41 1.41 6.3 6.3-6.3 6.29 1.41 1.42 6.3-6.3 6.29 6.3 1.42-1.42-6.3-6.29 6.3-6.3z" />
+              </svg>
             </button>
           </div>
 
@@ -1802,6 +1932,31 @@ useSeoMeta({
 
 .detail-nav__top {
   min-width: 108px;
+}
+
+.detail-hero__meta-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.detail-share-button {
+  gap: 0.45rem;
+  padding: 0 14px;
+  white-space: nowrap;
+}
+
+.detail-share-button--compact {
+  min-width: 92px;
+}
+
+.detail-share-button__icon {
+  display: block;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
 }
 
 .language-switcher__list,
@@ -1916,6 +2071,15 @@ useSeoMeta({
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
+}
+
+.global-description-entry__header-actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  margin-left: auto;
 }
 
 .global-description-entry__regional-numbers {

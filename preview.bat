@@ -3,6 +3,13 @@ setlocal
 
 pushd "%~dp0"
 
+if /I "%~1"=="--static" (
+  call preview-static.bat --serve-only %~2
+  set "exit_code=%errorlevel%"
+  popd
+  exit /b %exit_code%
+)
+
 powershell -NoProfile -ExecutionPolicy Bypass -Command "try { $response = Invoke-WebRequest -UseBasicParsing 'http://localhost:3000/' -TimeoutSec 2; if ($response.StatusCode -ge 200) { exit 0 } } catch { exit 1 }"
 if "%errorlevel%"=="0" (
   start "" "http://localhost:3000/"

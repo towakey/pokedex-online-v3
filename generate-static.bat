@@ -1,6 +1,9 @@
 @echo off
 setlocal
 
+set "SKIP_DATA=0"
+if /I "%~1"=="--skip-data" set "SKIP_DATA=1"
+
 pushd "%~dp0"
 
 if not exist ".env.production" (
@@ -15,13 +18,17 @@ if errorlevel 1 (
   exit /b 1
 )
 
-echo Running build:data...
-call npm run build:data
-if errorlevel 1 (
-  echo.
-  echo build:data に失敗しました。
-  popd
-  exit /b %errorlevel%
+if "%SKIP_DATA%"=="1" (
+  echo Skipping build:data...
+) else (
+  echo Running build:data...
+  call npm run build:data
+  if errorlevel 1 (
+    echo.
+    echo build:data に失敗しました。
+    popd
+    exit /b %errorlevel%
+  )
 )
 
 echo.

@@ -62,7 +62,9 @@ const closeDrawer = () => {
         </div>
       </div>
       <button type="button" class="icon-button icon-button--light" aria-label="閉じる" @click="closeDrawer">
-        ✕
+        <svg viewBox="0 0 24 24" class="icon-button__svg icon-button__svg--close" aria-hidden="true">
+          <path fill="currentColor" d="M18.3 5.71 12 12.01l-6.3-6.3-1.41 1.41 6.3 6.3-6.3 6.29 1.41 1.42 6.3-6.3 6.29 6.3 1.42-1.42-6.3-6.29 6.3-6.3z" />
+        </svg>
       </button>
     </div>
 
