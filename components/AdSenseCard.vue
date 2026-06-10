@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useAdSense } from '~/composables/useAdSense'
 
 interface Props {
@@ -47,9 +47,12 @@ const {
 } = useAdSense()
 
 const adElement = ref<HTMLElement | null>(null)
+const rootElement = ref<HTMLElement | null>(null)
 const isAdLoaded = ref(false)
 const adError = ref(false)
 const initialized = ref(false)
+const isNearViewport = ref(false)
+let viewportObserver: IntersectionObserver | null = null
 
 const normalizedSizeValue = (value: string | number): string => typeof value === 'number' ? `${value}px` : value
 
@@ -58,8 +61,13 @@ const cardStyle = computed(() => ({
   maxWidth: normalizedSizeValue(props.width)
 }))
 
+const reservedMinHeight = computed(() => {
+  const value = normalizedSizeValue(props.height)
+  return value === 'auto' ? '250px' : value
+})
+
 const containerStyle = computed(() => ({
-  minHeight: normalizedSizeValue(props.height)
+  minHeight: reservedMinHeight.value
 }))
 
 const adStyle = computed(() => ({
@@ -93,7 +101,7 @@ const placeholderMessage = computed(() => {
 })
 
 const initializeAd = async () => {
-  if (!import.meta.client || initialized.value || shouldShowPlaceholder.value) {
+  if (!import.meta.client || initialized.value || shouldShowPlaceholder.value || !isNearViewport.value) {
     return
   }
 
@@ -129,7 +137,27 @@ const initializeAd = async () => {
 
 onMounted(async () => {
   await initializeConfig()
-  await initializeAd()
+
+  if (typeof IntersectionObserver === 'undefined' || !rootElement.value) {
+    isNearViewport.value = true
+    await initializeAd()
+    return
+  }
+
+  viewportObserver = new IntersectionObserver(async (entries) => {
+    if (entries.some(entry => entry.isIntersecting)) {
+      isNearViewport.value = true
+      viewportObserver?.disconnect()
+      viewportObserver = null
+      await initializeAd()
+    }
+  }, { rootMargin: '200px 0px' })
+  viewportObserver.observe(rootElement.value)
+})
+
+onBeforeUnmount(() => {
+  viewportObserver?.disconnect()
+  viewportObserver = null
 })
 
 watch(
@@ -148,7 +176,7 @@ watch(
 </script>
 
 <template>
-  <section :class="['adsense-card', cardClass, { 'adsense-card--error': adError }]" :style="cardStyle">
+  <section ref="rootElement" :class="['adsense-card', cardClass, { 'adsense-card--error': adError }]" :style="cardStyle">
     <header v-if="showLabel" class="adsense-card__header">
       {{ actualLabel }}
     </header>
