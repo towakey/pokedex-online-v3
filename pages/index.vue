@@ -224,9 +224,9 @@ const debugPayload = computed(() => JSON.stringify({
   linkedItems: linkedItems.value
 }, null, 2))
 
-useSeoMeta({
+useSiteSeo({
   title: 'ホーム',
-  description: 'ポケモン図鑑アプリ'
+  description: '全国図鑑から地方図鑑まで、ポケモンの種族値・タイプ・特性・図鑑説明を検索できるポケモン図鑑サイトです。'
 })
 </script>
 

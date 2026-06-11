@@ -286,9 +286,9 @@ const debugPayload = computed(() => JSON.stringify({
   linkedItems: linkedItems.value
 }, null, 2))
 
-useSeoMeta({
+useSiteSeo({
   title: () => pageData.value.meta.label,
-  description: () => `${pageData.value.meta.label}のポケモン一覧ページです。`
+  description: () => `${pageData.value.meta.label}に登録された全${pageData.value.items.length}匹のポケモン一覧。名前・番号・タイプで絞り込んで各ポケモンの詳細データを確認できます。`
 })
 </script>
 
