@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 
 const appBaseURL = process.env.NUXT_PUBLIC_APP_BASE_URL || '/'
 const pokedexApiBaseURL = process.env.NUXT_PUBLIC_POKEDEX_API_BASE_URL || ''
+const siteUrl = (process.env.NUXT_PUBLIC_SITE_URL || '').replace(/\/+$/, '')
 const generatedDataDir = resolve(process.cwd(), 'generated-data')
 const pokemonDir = resolve(generatedDataDir, 'pokemon')
 const regionDir = resolve(generatedDataDir, 'region')
@@ -29,7 +30,7 @@ const formatPokemonRouteId = (id: number | string) => {
 }
 
 const createPrerenderRoutes = () => {
-  const routes = new Set<string>(['/', '/gallery', '/search', '/search/tag', '/pokedex'])
+  const routes = new Set<string>(['/', '/gallery', '/search', '/search/tag', '/pokedex', '/sitemap.xml', '/robots.txt'])
 
   if (existsSync(pokemonDir)) {
     for (const file of readdirSync(pokemonDir)) {
@@ -91,7 +92,8 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       appBaseURL,
-      pokedexApiBaseURL
+      pokedexApiBaseURL,
+      siteUrl
     }
   },
   css: ['~/assets/styles/common.css'],

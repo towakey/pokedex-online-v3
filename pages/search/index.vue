@@ -417,7 +417,7 @@ onMounted(async () => {
   await applyRouteQuery()
 })
 
-useSeoMeta({
+useSiteSeo({
   title: '検索',
   description: 'pokedex.php の全文検索APIを使って図鑑説明・名前・分類を検索できます。'
 })

@@ -1390,9 +1390,61 @@ const nextForm = () => {
   navigateTo(formEntries.value[newIndex].to)
 }
 
-useSeoMeta({
+const seoDescription = computed(() => {
+  if (descriptionText.value) {
+    return descriptionText.value
+  }
+
+  const name = displayPokemonName.value
+  if (name) {
+    const summaryParts = [
+      `${name}（${displayPokemonClassification.value}）の図鑑情報。`,
+      (pokemon.value?.types ?? []).filter(Boolean).length > 0 ? `タイプ: ${(pokemon.value?.types ?? []).filter(Boolean).join('・')}。` : '',
+      '種族値・特性・図鑑説明を掲載しています。'
+    ]
+    return summaryParts.filter(Boolean).join('')
+  }
+
+  return 'ポケモンの種族値・タイプ・特性・図鑑説明をまとめた詳細ページです。'
+})
+
+useSiteSeo({
   title: () => pokemon.value ? currentShareTitle.value : 'ポケモン詳細',
-  description: () => descriptionText.value || '個別ポケモンデータを静的 JSON から読み込む詳細ページです。'
+  description: () => seoDescription.value,
+  image: () => pokemonImagePath.value || undefined,
+  type: 'article'
+})
+
+const toAbsoluteUrl = useAbsoluteUrl()
+
+useJsonLd(() => {
+  if (!pokemon.value) {
+    return null
+  }
+
+  const breadcrumbList = {
+    '@type': 'BreadcrumbList',
+    itemListElement: breadcrumbItems.value.map((item, index) => ({
+      '@type': 'ListItem',
+      position: index + 1,
+      name: item.label,
+      ...(item.to ? { item: toAbsoluteUrl(item.to, { withBasePath: true }) } : {})
+    }))
+  }
+
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'WebPage',
+        name: currentShareTitle.value,
+        description: seoDescription.value,
+        ...(pokemonImagePath.value ? { image: toAbsoluteUrl(pokemonImagePath.value) } : {}),
+        breadcrumb: breadcrumbList
+      },
+      breadcrumbList
+    ]
+  }
 })
 
 </script>

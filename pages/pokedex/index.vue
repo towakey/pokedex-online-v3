@@ -44,9 +44,9 @@ const { data } = await useAsyncData<PokedexTopPageData>('pokedex-top-page', asyn
 
 const pageData = computed<PokedexTopPageData>(() => data.value ?? createDefaultPageData())
 
-useSeoMeta({
+useSiteSeo({
   title: 'ポケモン図鑑',
-  description: 'Pokedex-Online'
+  description: '全国図鑑・カントーからパルデアまで、各地方のポケモン図鑑を選んでポケモンを探せます。'
 })
 </script>
 
