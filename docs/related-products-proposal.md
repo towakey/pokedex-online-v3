@@ -1,191 +1,335 @@
-# ポケモン関連商品表示＆お気に入り機能 設計提案書
+# ポケモン関連商品表示＆お気に入り機能 設計提案書（改訂版）
 
 ## 1. 概要
 
-本提案は、`pokedex-online-v3` で**ポケモン関連商品情報をDB化し、各図鑑のポケモン詳細ページに「関連商品」として表示する**機能、および将来の拡張として**ユーザーがブラウザ内でお気に入りポケモンを保存し、お気に入りに紐づく商品情報を閲覧できる**機能を実現するための設計案です。
+本提案は、`pokedex-online-v3` で**ポケモン関連商品情報をDB化し、各図鑑のポケモン詳細ページに「関連商品」として表示する**機能、および**ユーザーがブラウザ内でお気に入りポケモンを保存し、お気に入りに紐づく商品情報を閲覧できる**機能を実現するための設計案です。
 
-現状のサイトは **Nuxt 3 を使った完全静的サイト**であり、Apache などの静的ホスティングで動作します。したがって商品情報も「ビルド時に生成された静的JSON」として扱い、お気に入り情報はブラウザ内の `localStorage`（または将来的に同期ストレージ）に保存する方向で設計しています。
+改訂にあたり、以下の追加要件を反映しています。
 
-## 2. 現状のアーキテクチャとの関係
+- 商品一覧は **DBにアクセスして動的に取得・更新**する
+- 商品DBに **ステータス** と **発売日** を持たせ、これらで **フィルター表示** できるようにする
 
-現状のデータフロー:
+## 2. 追加要件に対する設計方針
 
-```text
-pokedex repo
-    ↓
-scripts/build-data.ts
-    ↓
-generated-data/ （pokemon/, region/, index.json, search-index.json など）
-    ↓
-nuxt generate
-    ↓
-dist/ （静的サイト）
-```
+「DBにアクセスして動的にリストを更新」には、以下の2つの実装方針があります。
 
-商品情報も同様に、**ビルド時に generated-data に組み込む**形が最も自然です。これにより:
+### 2.1 方針A: Nuxt Server Routes + データベース（推奨）
 
-- 既存の `usePokedex()` による `/data/` 配下のJSON読み込み機構を流用できる
-- ランタイムにサーバーが不要
-- CDN 配信に最適
-
-## 3. 提案する全体構成
+Nuxt 3 の `server/api/` または `server/routes/` に商品用のAPIを実装し、PostgreSQL や SQLite などのRDBMSから動的に商品を取得します。
 
 ```text
-┌────────────────────────────────────────────────────────────────┐
-│  pokedex-online-v3                                             │
-│  ├─ data/products.ts           # 商品マスター（手動 or 自動編集）│
-│  ├─ data/product-mappings.ts   # 商品↔ポケモン紐付け              │
-│  ├─ scripts/build-data.ts      # 既存ビルドスクリプト            │
-│  │                              # 商品データを generated-data へ  │
-│  ├─ generated-data/            # ビルド成果物（gitignore）       │
-│  │   ├─ products/index.json    # 商品一覧                         │
-│  │   ├─ products/by-pokemon/   # ポケモン別商品JSON               │
-│  │   │   ├─ 0025.json          # e.g. ピカチュウ関連商品          │
-│  │   │   └─ ...                                                 │
-│  │   └─ pokemon/                 # 既存                           │
-│  │       ├─ 0025.json            # 既存のポケモン詳細に          │
-│  │       │                       # productIds フィールド追加      │
-│  └─ pages/pokedex/[area]/[id].vue # 関連商品セクション追加        │
-└────────────────────────────────────────────────────────────────┘
+ブラウザ
+  ↓ GET /api/products?pokemonId=25&status=available&releaseDateFrom=2024-01-01
+Nuxt Nitro Server
+  ↓ SQL
+PostgreSQL / SQLite / Supabase
 ```
 
-## 4. 商品情報のDB化
+**メリット:**
 
-### 4.1 商品データの定義場所
+- 完全な動的DBアクセス
+- フィルター・ソート・ページネーションをサーバー側で処理
+- 在庫状況や発売日の変更を即座に反映可能
 
-商品データはリポジトリ内にマスターとして保持します。
+**デメリット:**
+
+- 既存の「Apache への静的配置」構成からは外れる
+- ホスティング先を **Vercel / Netlify / Cloudflare Pages / Nodeサーバー** 等に変更する必要がある
+
+### 2.2 方針B: 外部BaaS（Supabase / Firebase）
+
+Nuxt アプリは静的サイトのまま、ブラウザから Supabase Client SDK や Firebase SDK を使って商品DBに直接アクセスします。
 
 ```text
-data/
-  products.ts         # 商品エンティティ定義 + 配列データ
-  product-mappings.ts # pokemon_id → product_id[] の紐付け
+ブラウザ
+  ↓ Supabase JS Client
+Supabase (PostgreSQL) / Firebase
 ```
 
-`.ts` 形式にすることで型チェック・自動補完が効き、編集ミスを減らせます。将来的にスプレッドシートや外部DBから生成する場合は、これらのファイルを生成対象にするだけです。
+**メリット:**
 
-### 4.2 商品データスキーマ
+- フロントエンドを静的ホスティング（Apache含む）したまま利用可能
+- 認証・リアルタイム更新・Row Level Security が使える
+
+**デメリット:**
+
+- 外部サービスへの依存
+- APIキー・RLS設定が必要
+
+### 2.3 方針C: 静的JSON + クライアントサイドフィルター（制約付き）
+
+ビルド時に全商品をJSON化し、クライアント側でフィルタリングします。DBアクセスではなく「静的データの動的フィルター」になります。
+
+**本要件では「DBにアクセス」が明示されているため、本提案では採用しません。**
+
+## 3. 推奨アーキテクチャ
+
+本提案では **方針A（Nuxt Server Routes + SQLite/PostgreSQL）** を基本としつつ、必要に応じて **方針B（Supabase）** への切り替えも容易な抽象化を入れます。
+
+```text
+┌────────────────────────────────────────────────────────────────────────┐
+│  フロントエンド (Nuxt 3)                                               │
+│  ├─ pages/pokedex/[area]/[id].vue   # 関連商品セクション                 │
+│  ├─ components/ProductList.vue      # フィルターUI + 商品一覧            │
+│  ├─ components/ProductFilter.vue    # ステータス・発売日フィルター        │
+│  ├─ composables/useProducts.ts    # 商品APIクライアント                │
+│  └─ composables/useFavorites.ts   # お気に入り（localStorage）         │
+├────────────────────────────────────────────────────────────────────────┤
+│  APIレイヤー (Nuxt Server Routes)                                      │
+│  ├─ server/api/products/index.get.ts   # 商品一覧取得（フィルター対応）  │
+│  ├─ server/api/products/[id].get.ts    # 商品詳細取得                    │
+│  ├─ server/utils/db.ts                 # DB接続・クエリ抽象化            │
+│  └─ server/utils/productRepository.ts  # 商品リポジトリ                │
+├────────────────────────────────────────────────────────────────────────┤
+│  データベース                                                          │
+│  ├─ PostgreSQL（本番推奨）                                             │
+│  └─ SQLite（開発・ローカル or 少量データ）                             │
+├────────────────────────────────────────────────────────────────────────┤
+│  既存静的データ                                                        │
+│  └─ generated-data/pokemon/, region/ 等 # ポケモン図鑑データは静的のまま │
+└────────────────────────────────────────────────────────────────────────┘
+```
+
+## 4. 商品DBスキーマ
+
+### 4.1 `products` テーブル
+
+| カラム名 | 型 | 説明 |
+|----------|-----|------|
+| `id` | `TEXT` / `UUID` PRIMARY KEY | 商品ID |
+| `name` | `TEXT` NOT NULL | 商品名 |
+| `description` | `TEXT` | 商品説明 |
+| `category` | `TEXT` | `plush`, `figure`, `card`, `stationery`, `game`, `apparel`, `other` |
+| `price` | `INTEGER` | 税抜価格（任意） |
+| `currency` | `TEXT` | `JPY` 等 |
+| `image_url` | `TEXT` | 商品画像URL |
+| `url` | `TEXT` NOT NULL | 商品ページURL |
+| `source` | `TEXT` | `amazon`, `rakuten`, `yahoo`, `pokemon-center`, `other` |
+| `status` | `TEXT` NOT NULL | `available`（販売中）, `pre_order`（予約受付中）, `sold_out`（売切）, `unreleased`（未発売）, `discontinued`（販売終了） |
+| `release_date` | `DATE` | 発売日（ISO 8601: `YYYY-MM-DD`） |
+| `is_available` | `BOOLEAN` | `available` / `pre_order` の場合 true。`status` から導出可能だが、検索高速化用 |
+| `tags` | `TEXT[]` / `JSON` | 検索・フィルタ用タグ |
+| `affiliate_info` | `JSON` | ASP用追跡情報 |
+| `created_at` | `TIMESTAMP` | 作成日時 |
+| `updated_at` | `TIMESTAMP` | 更新日時 |
+
+### 4.2 `product_pokemon_mappings` テーブル
+
+| カラム名 | 型 | 説明 |
+|----------|-----|------|
+| `product_id` | `TEXT` / `UUID` | 外部キー |
+| `pokemon_id` | `TEXT` NOT NULL | 全国No or フォームID（`25`, `25_00000000_0_000_0` 等） |
+| `priority` | `INTEGER` | 表示順。小さいほど先頭 |
+
+### 4.3 インデックス
+
+```sql
+CREATE INDEX idx_products_status ON products(status);
+CREATE INDEX idx_products_release_date ON products(release_date);
+CREATE INDEX idx_products_available ON products(is_available);
+CREATE INDEX idx_mappings_pokemon ON product_pokemon_mappings(pokemon_id);
+CREATE INDEX idx_mappings_product ON product_pokemon_mappings(product_id);
+```
+
+## 5. API設計
+
+### 5.1 商品一覧取得
+
+```http
+GET /api/products?pokemonId=25&status=available&releaseDateFrom=2024-01-01&releaseDateTo=2024-12-31&limit=20&offset=0
+```
+
+**クエリパラメータ:**
+
+| パラメータ | 型 | 説明 |
+|------------|-----|------|
+| `pokemonId` | `string` | ポケモンID。カンマ区切りで複数指定可 |
+| `status` | `string` | カンマ区切り。`available,pre_order` 等 |
+| `releaseDateFrom` | `YYYY-MM-DD` | 発売日（開始） |
+| `releaseDateTo` | `YYYY-MM-DD` | 発売日（終了） |
+| `category` | `string` | カンマ区切り |
+| `search` | `string` | 商品名・説明・タグの部分一致 |
+| `sort` | `string` | `release_date_desc`, `release_date_asc`, `price_asc`, `price_desc`, `priority_asc` |
+| `limit` | `number` | 最大取得件数。デフォルト 20 |
+| `offset` | `number` | ページネーションオフセット |
+
+**レスポンス例:**
+
+```json
+{
+  "items": [
+    {
+      "id": "plush-pikachu-s",
+      "name": "ピカチュウ ぬいぐるみ S",
+      "category": "plush",
+      "price": 2200,
+      "currency": "JPY",
+      "imageUrl": "/images/products/plush-pikachu-s.jpg",
+      "url": "https://...",
+      "source": "pokemon-center",
+      "status": "available",
+      "releaseDate": "2024-03-15",
+      "tags": ["ぬいぐるみ", "ピカチュウ"]
+    }
+  ],
+  "total": 42,
+  "limit": 20,
+  "offset": 0
+}
+```
+
+### 5.2 商品詳細取得
+
+```http
+GET /api/products/{id}
+```
+
+### 5.3 Server Route 実装例
 
 ```typescript
-export interface Product {
-  id: string               // 例: "pkmc-plush-pikachu-001"
-  name: string             // 例: "ピカチュウ ぬいぐるみ S"
-  description?: string
-  category: 'plush' | 'figure' | 'card' | 'stationery' | 'game' | 'apparel' | 'other'
-  price?: number           // 税抜想定価格（任意）
-  currency?: string        // 例: "JPY"
-  imageUrl?: string        // 商品画像URL or /images/products/xxx.png
-  url: string              // アフィリエイト or 商品ページURL
-  source: 'amazon' | 'rakuten' | 'yahoo' | 'pokemon-center' | 'other'
-  releaseDate?: string     // ISO 8601 (YYYY-MM-DD)
-  isAvailable: boolean
-  tags?: string[]          // 検索・フィルタ用
-  affiliateInfo?: {
-    trackingId?: string
-    // 各ASP用の追加情報
-  }
+// server/api/products/index.get.ts
+import { defineEventHandler, getQuery } from 'h3'
+
+export default defineEventHandler(async (event) => {
+  const query = getQuery(event)
+  const { pokemonId, status, releaseDateFrom, releaseDateTo, limit = 20, offset = 0 } = query
+
+  const products = await getProducts({
+    pokemonId: parsePokemonIdList(pokemonId),
+    statuses: parseStatusList(status),
+    releaseDateFrom,
+    releaseDateTo,
+    limit: Number(limit),
+    offset: Number(offset)
+  })
+
+  return products
+})
+```
+
+### 5.4 DB接続抽象化
+
+```typescript
+// server/utils/productRepository.ts
+export interface ProductFilter {
+  pokemonId?: string[]
+  statuses?: string[]
+  releaseDateFrom?: string
+  releaseDateTo?: string
+  limit?: number
+  offset?: number
 }
 
-export interface ProductMapping {
-  pokemonId: string        // 全国No or フォームID
-  productIds: string[]
+export async function getProducts(filter: ProductFilter) {
+  // 環境変数 or 設定で PostgreSQL / SQLite / Supabase を切り替え
 }
 ```
 
-### 4.3 データ例
+## 6. 既存の静的Pokédexデータとの共存
 
-```typescript
-// data/products.ts
-export const products: Product[] = [
-  {
-    id: 'plush-pikachu-s',
-    name: 'ピカチュウ ぬいぐるみ S',
-    category: 'plush',
-    price: 2200,
-    imageUrl: '/images/products/plush-pikachu-s.jpg',
-    url: 'https://www.pokemoncenter-online.com/...',
-    source: 'pokemon-center',
-    isAvailable: true,
-    tags: ['ぬいぐるみ', 'ピカチュウ']
-  },
-  {
-    id: 'card-pikachu-vmax',
-    name: 'ポケモンカード ピカチュウVMAX',
-    category: 'card',
-    url: 'https://...',
-    source: 'amazon',
-    isAvailable: true
-  }
-]
-
-// data/product-mappings.ts
-export const productMappings: ProductMapping[] = [
-  { pokemonId: '25', productIds: ['plush-pikachu-s', 'card-pikachu-vmax'] },
-  { pokemonId: '26', productIds: ['plush-raichu-s'] }
-]
-```
-
-### 4.4 紐付けルール
-
-| ルール | 内容 |
-|--------|------|
-| `pokemonId` | 全国図鑑Noを優先。フォーム違いの場合は既存の `formatPokemonRouteId` と同じID体系（例: `25_00000000_0_000_0`）を使用 |
-| 1商品 ↔ 複数ポケモン | 可能。例: 「イーブイ進化セット」はイーブイ + 各進化形に紐付け |
-| 並び順 | `productIds` の配列順で表示。優先度が高いものほど先頭 |
-| 表示制限 | デフォルトで最大8件まで、UI上「もっと見る」で全件表示 |
-
-## 5. 関連商品表示機能
-
-### 5.1 ビルドパイプラインへの追加
-
-`scripts/build-data.ts` を拡張し、以下を生成します。
+商品情報だけを動的化し、Pokédexデータは既存の `generated-data/` 静的JSONを維持します。
 
 ```text
-generated-data/
-  products/
-    index.json              # 全商品マスター（検索用）
-    by-pokemon/
-      0025.json             # ピカチュウ関連商品
-      0026.json             # ライチュウ関連商品
-      ...
+静的: /data/pokemon/0025.json      → ポケモン詳細情報
+動的: /api/products?pokemonId=25   → 関連商品（フィルター可能）
 ```
 
-各ポケモンの `generated-data/pokemon/{id}.json` には `productIds` または `products` フィールドを追加することも可能ですが、**関連商品を別ファイル化**することで、商品データを後から追加・更新してもポケモンデータの再生成を最小化できます。
+この分離により:
 
-### 5.2 フロントエンド実装
+- 既存のビルドパイプライン `scripts/build-data.ts` は変更しない、または最小限の変更にとどめる
+- 商品DB更新時に全ページを再ビルドする必要がない
+- Pokédexページの初回表示は高速に保たれる
 
-`usePokedex()` に商品読み込みメソッドを追加します。
+## 7. フロントエンド実装
+
+### 7.1 商品用 Composable
 
 ```typescript
-const loadProductsByPokemon = (id: number | string) =>
-  loadGeneratedData<Product[]>(`products/by-pokemon/${formatPokemonRouteId(id)}.json`)
+// composables/useProducts.ts
+export interface ProductQuery {
+  pokemonId?: string | string[]
+  status?: string | string[]
+  releaseDateFrom?: string
+  releaseDateTo?: string
+  search?: string
+  sort?: string
+  limit?: number
+  offset?: number
+}
+
+export function useProducts() {
+  const fetchProducts = (query: ProductQuery) => {
+    return $fetch('/api/products', { query: buildProductQuery(query) })
+  }
+
+  return { fetchProducts }
+}
 ```
 
-`pages/pokedex/[area]/[id].vue` の既存の `AdSenseCard` セクションの近くに「関連商品」セクションを追加します。例:
+### 7.2 フィルターUI
 
 ```vue
+<!-- components/ProductFilter.vue -->
+<template>
+  <form class="product-filter" @submit.prevent>
+    <fieldset>
+      <legend>ステータス</legend>
+      <label><input v-model="selectedStatuses" type="checkbox" value="available"> 販売中</label>
+      <label><input v-model="selectedStatuses" type="checkbox" value="pre_order"> 予約受付中</label>
+      <label><input v-model="selectedStatuses" type="checkbox" value="sold_out"> 売切</label>
+      <label><input v-model="selectedStatuses" type="checkbox" value="unreleased"> 未発売</label>
+      <label><input v-model="selectedStatuses" type="checkbox" value="discontinued"> 販売終了</label>
+    </fieldset>
+
+    <fieldset>
+      <legend>発売日</legend>
+      <input v-model="releaseDateFrom" type="date">
+      <span>〜</span>
+      <input v-model="releaseDateTo" type="date">
+    </fieldset>
+
+    <button type="button" @click="applyFilter">絞り込み</button>
+    <button type="button" @click="resetFilter">リセット</button>
+  </form>
+</template>
+```
+
+### 7.3 商品一覧 + フィルター連携
+
+```vue
+<!-- components/ProductList.vue -->
+<template>
+  <section>
+    <ProductFilter v-model="filter" @update="onFilterUpdate" />
+
+    <div v-if="pending">読み込み中...</div>
+    <div v-else-if="error">エラーが発生しました。</div>
+    <ul v-else class="product-list">
+      <li v-for="product in data?.items" :key="product.id">
+        <ProductCard :product="product" />
+      </li>
+    </ul>
+
+    <button v-if="hasMore" @click="loadMore">もっと見る</button>
+  </section>
+</template>
+```
+
+### 7.4 詳細ページへの組み込み
+
+```vue
+<!-- pages/pokedex/[area]/[id].vue の関連箇所 -->
 <section class="pokemon-products">
   <h2 class="section-title">関連商品</h2>
   <ProductList :pokemon-id="pokemon.id" />
 </section>
 ```
 
-新規コンポーネント:
+## 8. お気に入り機能
 
-- `components/ProductCard.vue` — 1商品のカード表示
-- `components/ProductList.vue` — 商品一覧。空の場合は非表示
+### 8.1 保存先
 
-### 5.3 UIデザイン指針
-
-- カードは横長タイプ（画像 + 商品名 + カテゴリ + 価格）
-- 外部リンクは `target="_blank" rel="noopener sponsored"`
-- 広告・PR ラベルは `adsense.config.json` の `labels.sponsored` と連携
-- 画像がない場合は `PokemonCard` と同系統のプレースホルダ
-
-## 6. お気に入り機能
-
-### 6.1 保存先: ブラウザ内 (localStorage / IndexedDB)
-
-現状、サイトはユーザーアカウントやサーバーを持たないため、お気に入りは**ブラウザ内に保存**します。
+現時点では **ブラウザ内 `localStorage`** を使用します。将来的にユーザーアカウントを導入した場合、DBへの移行が可能です。
 
 ```typescript
 // composables/useFavorites.ts
@@ -208,48 +352,31 @@ export function useFavorites() {
 }
 ```
 
-### 6.2 ユーザー体験
+### 8.2 お気に入り商品ページ
 
-1. **お気に入り登録**: ポケモン詳細ページに「☆ お気に入り」ボタンを配置
-2. **お気に入り一覧ページ**: `/favorites` ページを新設
-3. **お気に入り商品ページ**: `/favorites/products` などで、お気に入りポケモンに紐づく商品をまとめて表示
+`/favorites/products` で、お気に入りポケモンIDを `pokemonId` クエリパラメータとして `/api/products` に渡します。
 
-### 6.3 お気に入り商品ページの動作
+```http
+GET /api/products?pokemonId=25,6,133&status=available&sort=release_date_desc
+```
 
-ページを開いたときに:
+## 9. 実装ステップ
 
-1. `localStorage` からお気に入り `pokemonId[]` を読み込む
-2. 各 `pokemonId` に対して `/data/products/by-pokemon/{id}.json` を取得
-3. 取得結果を統合し、重複を除去して表示
-4. ソート: 新着順 or 安い順 or カテゴリ別（将来的）
+### Phase 1: 環境整備とDB設計
 
-## 7. 将来的な拡張
+1. ホスティング方針を確定（Server Routes + PostgreSQL / SQLite / Supabase）
+2. DBスキーマを作成（`products`, `product_pokemon_mappings`）
+3. `server/utils/db.ts` でDB接続を抽象化
+4. `server/utils/productRepository.ts` を実装
+5. `server/api/products/index.get.ts` を実装（フィルター対応）
 
-現状の設計を前提に、後から追加しやすい拡張:
+### Phase 2: フロントエンド実装
 
-| 拡張 | 内容 |
-|------|------|
-| ユーザーアカウント | `localStorage` からバックエンドDB（Supabase/Firebase等）へ移行 |
-| 商品検索 | `/data/products/index.json` を使ったクライアントサイド検索 |
-| カテゴリ・価格フィルタ | `ProductList` コンポーネントにフィルタUI追加 |
-| 在庫連携 | 外部APIを定期実行し `data/products.ts` を更新するCIジョブ |
-| おすすめ商品 | 閲覧履歴やお気に入りに基づいたレコメンド（プライバシー注意） |
-
-## 8. 実装ステップ（推奨フェーズ）
-
-### Phase 1: 商品マスターとビルドパイプライン
-
-1. `data/products.ts` / `data/product-mappings.ts` を作成
-2. `scripts/build-data.ts` で `generated-data/products/` を出力する処理を追加
-3. 型定義を `types/product.ts` として追加
-4. 既存の `generated-data/pokemon/{id}.json` に影響がないことを確認
-
-### Phase 2: 関連商品表示
-
-1. `usePokedex()` に `loadProductsByPokemon` を追加
-2. `components/ProductCard.vue` / `components/ProductList.vue` を作成
-3. `pages/pokedex/[area]/[id].vue` に関連商品セクションを追加
-4. 広告ラベル・PR表記を `AdSenseCard` と同じテストモードで表示確認
+1. `types/product.ts` に型定義を追加
+2. `composables/useProducts.ts` を作成
+3. `components/ProductFilter.vue` を作成
+4. `components/ProductCard.vue` / `components/ProductList.vue` を作成
+5. `pages/pokedex/[area]/[id].vue` に関連商品セクションを追加
 
 ### Phase 3: お気に入り機能
 
@@ -258,33 +385,48 @@ export function useFavorites() {
 3. `/favorites` ページを新設
 4. `/favorites/products` ページでお気に入り商品をまとめ表示
 
-### Phase 4: 運用・拡張
+### Phase 4: 運用・管理機能
 
-1. 商品データの更新フロー（手動 or 自動）を確立
-2. CIでの商品データ検証（型チェック、URL死活確認など）
-3. 必要に応じてアカウント・同期機能を検討
+1. 商品データの登録・更新用の簡易管理画面 or API
+2. 商品データのCSV/JSONインポート機能
+3. 在庫・ステータス更新の自動化（外部API連携 or 定期実行）
+4. URL死活確認・価格監視のCIジョブ
 
-## 9. セキュリティ・法務・パフォーマンス上の注意
+## 10. セキュリティ・法務・パフォーマンス上の注意
 
 ### セキュリティ
 
-- 外部商品URLは入力時にサニタイズ。`javascript:` スキーム等を拒否
-- アフィリエイトIDなどは環境変数 or ビルド時変数で注入し、公開設定ファイルには直接記述しない
+- DB接続情報は `.env` で管理し、クライアントに漏出しない
+- SQLインジェクション対策: プリペアドステートメントを使用
+- 外部商品URLは入力時にサニタイズ（`javascript:` 等を拒否）
+- アフィリエイトIDなどはサーバー側で注入
 
 ### 法務・表記
 
 - 商品画像は著作権に注意。公式サイトへのリンクのみを掲載する形が無難
 - PR・スポンサードリンクには `rel="sponsored"` を付与
 - 価格表記は「参考価格」や税込み/税抜きの明記を徹底
+- 未発売商品の表示には注意喚起を入れる
 
 ### パフォーマンス
 
+- `status`, `release_date`, `pokemon_id` にインデックスを張る
+- `limit`/`offset` を上限設定（例: max 100）
 - 商品画像は `loading="lazy"` + 適切な `width/height`
-- 関連商品JSONは初回表示時に必要に応じて読み込む。静的プリレンダリング時に詳細ページに埋め込むか、別途 `fetch` するかを選択可能
-- `generated-data/products/by-pokemon/` のファイル数は全国図鑑数程度なので、容量は軽微
+- Nuxtの `useFetch` / `useAsyncData` でキャッシュ戦略を設定
 
-## 10. まとめ
+## 11. 既存「Apache静的ホスティング」からの移行について
 
-本提案では、**既存の「完全静的な Nuxt 3 サイト」という制約を維持しつつ**、商品情報をリポジトリ内のTSマスターとしてDB化し、ビルドパイプラインで最適化されたJSONに変換します。詳細ページには関連商品セクションを追加し、お気に入りは `localStorage` でブラウザ内保存することで、サーバー不要でユーザーごとの表示を実現します。
+動的DBアクセスを実現するには、以下のいずれかの移行が必要です。
 
-次のステップとして、まずは **Phase 1（商品マスター + ビルドパイプライン）** を実装し、商品データが正しく生成・配信されることを確認することを推奨します。
+| 移行パターン | 内容 |
+|--------------|------|
+| **A. Node/Edgeホスティングへ移行** | Vercel / Netlify / Cloudflare Pages / Nodeサーバー でNuxt Server Routesを使用 |
+| **B. APIを分離** | Apache上に静的Nuxtを置き、商品APIだけ別サーバー（EC2/Cloud Run等）で提供 |
+| **C. BaaSを使用** | 静的サイトのまま Supabase/Firebase から動的取得 |
+
+## 12. まとめ
+
+改訂版の設計では、**商品情報をDB（PostgreSQL/SQLite/Supabase）で管理し、Nuxt Server Routes 経由で動的に取得・更新**します。`status` と `release_date` を含むフィルターUIを実装し、既存の静的Pokédexデータとは分離して動作させます。お気に入りは引き続き `localStorage` でブラウザ内保存とし、将来的に認証基盤を追加すればDBに移行できます。
+
+次のステップとして、**まずホスティング方針を確定**し、**Phase 1（DB設計 + API実装）** を進めることを推奨します。
