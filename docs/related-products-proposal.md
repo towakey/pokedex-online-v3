@@ -658,13 +658,295 @@ if (in_array($origin, $allowedOrigins, true)) {
 3. `/favorites` ページを新設
 4. `/favorites/products` ページでお気に入り商品をまとめ表示
 
-### Phase 4: 運用・管理
+### Phase 4: 定期クロール・商品登録システム
+
+1. `cron` で1日1回 `cron/fetch-products.php` を実行
+2. 各ASP/APIから商品情報を取得
+3. 取得データを正規化し `products` テーブルへ upsert
+4. ログ・エラー管理用の `crawl_logs` テーブルに記録
+
+### Phase 5: 運用・管理
 
 1. 商品登録・更新用の管理画面 or 簡易APIを作成
 2. CSV/JSON インポート機能
-3. 価格・在庫ステータスの定期更新ジョブ（cron + PHPスクリプト）
+3. 手動での在庫・価格確認機能
 
-## 11. セキュリティ・法務・パフォーマンス上の注意
+## 11. 定期クロール・商品登録システム
+
+### 11.1 目的
+
+- 各ECサイト（ポケモンセンター、Amazon、楽天、Yahoo!ショッピング等）から**1日1回**程度の頻度で商品情報を取得
+- 取得した情報を SQLite/MySQL の `products` テーブルに登録・更新
+- 価格変更、在庫ステータス変更、新商品追加を自動検知
+
+### 11.2 システム構成
+
+```text
+サーバー
+├── /var/www/html/pokedex-online/       # Nuxt 静的サイト
+└── /var/www/html/pokedex-api/          # 商品API + クローラー
+    ├── cron/
+    │   └── fetch-products.php          # cron から毎日実行
+    ├── lib/
+    │   ├── Database.php                  # DB接続
+    │   ├── ProductRepository.php         # 商品 upsert
+    │   ├── PokemonMatcher.php            # ポケモン名⇔キーワード紐付け
+    │   ├── CrawlerLogger.php             # ログ記録
+    │   ├── sources/
+    │   │   ├── PokemonCenterCrawler.php
+    │   │   ├── AmazonProductApi.php
+    │   │   ├── RakutenIchibaApi.php
+    │   │   └── YahooShoppingApi.php
+    └── db/
+        └── products.db
+```
+
+### 11.3 cron 設定例
+
+```cron
+# 毎日午前3時に実行
+0 3 * * * /usr/bin/php /var/www/html/pokedex-api/cron/fetch-products.php >> /var/log/pokedex-api/cron.log 2>&1
+```
+
+### 11.4 取得元（ASP/API）の例
+
+| 取得元 | 方法 | 備考 |
+|--------|------|------|
+| **ポケモンセンターオンライン** | Webスクレイピング or 公式API | robots.txt / 利用規約を確認。画像リンクや商品URL取得に留める |
+| **Amazon** | Product Advertising API (PA-API 5.0) | APIキー・AssociateTagが必要。利用規約に注意 |
+| **楽天市場** | 楽天商品検索API | アプリID取得が必要。1日のAPI上限あり |
+| **Yahoo!ショッピング** | Yahoo!ショッピングAPI | アプリケーションID取得が必要 |
+
+### 11.5 ポケモン紐付けロジック
+
+```php
+// lib/PokemonMatcher.php
+class PokemonMatcher {
+    private array $pokemonKeywords;
+
+    public function __construct(PDO $pdo) {
+        $this->pokemonKeywords = $this->loadKeywords($pdo);
+    }
+
+    private function loadKeywords(PDO $pdo): array {
+        // 全国図鑑マスターから pokemon_id と検索キーワードを取得
+        $stmt = $pdo->query("SELECT pokemon_id, name FROM pokemon_keywords");
+        return $stmt->fetchAll(PDO::FETCH_KEY_PAIR);
+    }
+
+    public function match(string $productName, string $description): array {
+        $matches = [];
+        foreach ($this->pokemonKeywords as $pokemonId => $keyword) {
+            if (str_contains($productName, $keyword) || str_contains($description, $keyword)) {
+                $matches[] = $pokemonId;
+            }
+        }
+        return $matches;
+    }
+}
+```
+
+### 11.6 商品正規化・upsert 処理
+
+```php
+// cron/fetch-products.php（抜粋）
+<?php
+require __DIR__ . '/../vendor/autoload.php';
+require __DIR__ . '/../lib/Database.php';
+require __DIR__ . '/../lib/ProductRepository.php';
+require __DIR__ . '/../lib/PokemonMatcher.php';
+require __DIR__ . '/../lib/sources/PokemonCenterCrawler.php';
+require __DIR__ . '/../lib/sources/RakutenIchibaApi.php';
+
+$db = Database::connect();
+$repo = new ProductRepository($db);
+$matcher = new PokemonMatcher($db);
+
+$sources = [
+    new PokemonCenterCrawler(),
+    new RakutenIchibaApi($_ENV['RAKUTEN_APP_ID'] ?? ''),
+];
+
+foreach ($sources as $source) {
+    try {
+        $items = $source->fetch('ポケモン ぬいぐるみ'); // 取得クエリ
+        foreach ($items as $item) {
+            $product = normalizeProduct($item);
+            $pokemonIds = $matcher->match($product['name'], $product['description'] ?? '');
+            if (empty($pokemonIds)) {
+                continue; // ポケモンと紐付かない商品は無視
+            }
+            $repo->upsert($product, $pokemonIds);
+        }
+    } catch (Throwable $e) {
+        CrawlerLogger::error($source->getName(), $e->getMessage());
+    }
+}
+
+function normalizeProduct(array $item): array {
+    return [
+        'id' => $item['itemCode'] ?? $item['id'],
+        'name' => $item['itemName'] ?? $item['name'],
+        'description' => $item['itemCaption'] ?? $item['description'] ?? null,
+        'category' => detectCategory($item['itemName'] ?? ''),
+        'price' => $item['itemPrice'] ?? null,
+        'currency' => 'JPY',
+        'imageUrl' => $item['imageUrls'][0] ?? $item['mediumImageUrls'][0] ?? null,
+        'url' => $item['itemUrl'] ?? $item['url'],
+        'source' => $item['source'],
+        'status' => detectStatus($item),
+        'releaseDate' => $item['releaseDate'] ?? null,
+        'tags' => implode(',', detectTags($item['itemName'] ?? '')),
+        'affiliateInfo' => json_encode($item['affiliate'] ?? []),
+    ];
+}
+```
+
+### 11.7 ProductRepository::upsert 実装例
+
+```php
+class ProductRepository {
+    private PDO $pdo;
+
+    public function __construct(PDO $pdo) {
+        $this->pdo = $pdo;
+    }
+
+    public function upsert(array $product, array $pokemonIds): void {
+        $sql = "INSERT INTO products (
+            id, name, description, category, price, currency, image_url, url,
+            source, status, release_date, tags, affiliate_info, created_at, updated_at
+        ) VALUES (
+            :id, :name, :description, :category, :price, :currency, :image_url, :url,
+            :source, :status, :release_date, :tags, :affiliate_info, :created_at, :updated_at
+        )
+        ON CONFLICT(id) DO UPDATE SET
+            name = excluded.name,
+            description = excluded.description,
+            category = excluded.category,
+            price = excluded.price,
+            image_url = excluded.image_url,
+            url = excluded.url,
+            source = excluded.source,
+            status = excluded.status,
+            release_date = excluded.release_date,
+            tags = excluded.tags,
+            affiliate_info = excluded.affiliate_info,
+            updated_at = :updated_at";
+
+        $now = date('c');
+        $stmt = $this->pdo->prepare($sql);
+        $stmt->execute([
+            ':id' => $product['id'],
+            ':name' => $product['name'],
+            ':description' => $product['description'],
+            ':category' => $product['category'],
+            ':price' => $product['price'],
+            ':currency' => $product['currency'],
+            ':image_url' => $product['imageUrl'],
+            ':url' => $product['url'],
+            ':source' => $product['source'],
+            ':status' => $product['status'],
+            ':release_date' => $product['releaseDate'],
+            ':tags' => $product['tags'],
+            ':affiliateInfo' => $product['affiliateInfo'],
+            ':created_at' => $now,
+            ':updated_at' => $now,
+        ]);
+
+        // ポケモン紐付けを更新
+        $this->pdo->prepare("DELETE FROM product_pokemon_mappings WHERE product_id = :product_id")
+            ->execute([':product_id' => $product['id']]);
+
+        $insert = $this->pdo->prepare("INSERT INTO product_pokemon_mappings (product_id, pokemon_id, priority) VALUES (:product_id, :pokemon_id, 0)");
+        foreach (array_unique($pokemonIds) as $pokemonId) {
+            $insert->execute([':product_id' => $product['id'], ':pokemon_id' => $pokemonId]);
+        }
+    }
+}
+```
+
+### 11.8 ステータス判定ロジック
+
+```php
+function detectStatus(array $item): string {
+    $stockStatus = strtolower($item['availability'] ?? '');
+    $name = strtolower($item['itemName'] ?? '');
+
+    if (str_contains($stockStatus, 'soldout') || str_contains($stockStatus, '売り切れ') || str_contains($stockStatus, 'outofstock')) {
+        return 'sold_out';
+    }
+    if (str_contains($stockStatus, 'preorder') || str_contains($name, '予約')) {
+        return 'pre_order';
+    }
+    if (str_contains($name, '未発売') || str_contains($stockStatus, 'coming_soon')) {
+        return 'unreleased';
+    }
+    if (str_contains($stockStatus, 'discontinued') || str_contains($name, '販売終了')) {
+        return 'discontinued';
+    }
+    return 'available';
+}
+```
+
+### 11.9 ログ・エラー管理
+
+```sql
+CREATE TABLE IF NOT EXISTS crawl_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  source TEXT NOT NULL,
+  status TEXT NOT NULL, -- success / error / skipped
+  message TEXT,
+  fetched_count INTEGER,
+  inserted_count INTEGER,
+  updated_count INTEGER,
+  started_at TEXT NOT NULL,
+  finished_at TEXT
+);
+```
+
+```php
+class CrawlerLogger {
+    public static function start(PDO $pdo, string $source): int {
+        $stmt = $pdo->prepare("INSERT INTO crawl_logs (source, status, message, started_at) VALUES (?, 'running', '', ?)");
+        $stmt->execute([$source, date('c')]);
+        return (int)$pdo->lastInsertId();
+    }
+
+    public static function finish(PDO $pdo, int $logId, int $fetched, int $inserted, int $updated, ?string $message = null): void {
+        $stmt = $pdo->prepare("UPDATE crawl_logs SET status='success', message=?, fetched_count=?, inserted_count=?, updated_count=?, finished_at=? WHERE id=?");
+        $stmt->execute([$message, $fetched, $inserted, $updated, date('c'), $logId]);
+    }
+
+    public static function error(PDO $pdo, int $logId, string $message): void {
+        $stmt = $pdo->prepare("UPDATE crawl_logs SET status='error', message=?, finished_at=? WHERE id=?");
+        $stmt->execute([$message, date('c'), $logId]);
+    }
+}
+```
+
+### 11.10 レート制限・注意事項
+
+- **各APIの利用規約・レート制限を遵守**する
+- スクレイピングは最終手段。robots.txt、利用規約、サイトポリシーを確認
+- 取得間隔は対象サイトの負荷を考慮し、1日1回を基本とする
+- 取得失敗時は指数バックオフでリトライ（例: 1分後、5分後、15分後）
+- 深夜帯（午前2〜4時）に実行すると、サーバー負荷・相手サーバー負荷が低い
+
+### 11.11 手動登録・管理画面
+
+自動取得だけでは網羅できない商品のため、簡易管理画面も用意します。
+
+```text
+/pokedex-api/admin/
+├── products.php          # 商品一覧・検索
+├── product-edit.php      # 商品登録・編集
+└── import-csv.php        # CSVインポート
+```
+
+認証はベーシック認証 or 簡易トークン認証で保護してください。
+
+## 12. セキュリティ・法務・パフォーマンス上の注意
 
 ### セキュリティ
 
@@ -688,12 +970,13 @@ if (in_array($origin, $allowedOrigins, true)) {
 - `limit` はデフォルト 20、最大 100
 - 頻繁に呼ばれる API は Nuxt 側でクライアントキャッシュ or SWR を検討
 
-## 12. まとめ
+## 13. まとめ
 
 本提案では、**Nuxt 静的サイトをそのまま維持**しつつ、**同じサーバーの別ディレクトリに PHP + SQLite/MySQL の商品API** を配置し、ブラウザから動的に商品情報を取得する構成を採用しています。
 
 - 商品DBには `status` と `release_date` を持たせ、API クエリパラメータでフィルタリング
 - フロントエンドは `useProducts()` / `ProductFilter` / `ProductList` でAPIと連携
 - お気に入りは `localStorage` でブラウザ内保存
+- **PHP 製の cron クローラー**が1日1回各ASP/APIから商品情報を取得し、DBを自動更新
 
 次のステップとして、**まずは Phase 1（API 基盤構築）** を進め、テスト用に数件の商品データを入れて `/pokedex-api/products.php?pokemonId=25` が正しく動作することを確認することを推奨します。
