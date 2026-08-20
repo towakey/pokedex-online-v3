@@ -6,97 +6,59 @@
 
 改訂にあたり、以下の追加要件を反映しています。
 
-- 商品一覧は **DBにアクセスして動的に取得・更新**する
+- 商品DBを **SQLite または MySQL** で管理する
+- 商品一覧は **同じサーバーの別ディレクトリに配置したAPI 経由で動的に取得**する
 - 商品DBに **ステータス** と **発売日** を持たせ、これらで **フィルター表示** できるようにする
+- Nuxt の静的生成（`nuxt generate`）部分はそのまま維持する
 
-## 2. 追加要件に対する設計方針
+## 2. 全体構成
 
-「DBにアクセスして動的にリストを更新」には、以下の2つの実装方針があります。
-
-### 2.1 方針A: Nuxt Server Routes + データベース（推奨）
-
-Nuxt 3 の `server/api/` または `server/routes/` に商品用のAPIを実装し、PostgreSQL や SQLite などのRDBMSから動的に商品を取得します。
+```text
+同一サーバー
+├── /var/www/html/pokedex-online/    # Nuxt 静的生成サイト（Apache配信）
+│   ├── index.html
+│   ├── pokedex/
+│   └── ...
+│
+└── /var/www/html/pokedex-api/       # 商品API（別ディレクトリ）
+    ├── products/                    # 商品一覧・検索API
+    ├── init/                        # DB初期化スクリプト
+    └── db/                          # SQLiteの場合はDBファイルを配置
+```
 
 ```text
 ブラウザ
-  ↓ GET /api/products?pokemonId=25&status=available&releaseDateFrom=2024-01-01
-Nuxt Nitro Server
+  ↓ GET https://example.com/pokedex-api/products.php?pokemonId=25&status=available
+APIディレクトリ (PHP / Node / Python)
   ↓ SQL
-PostgreSQL / SQLite / Supabase
+SQLite / MySQL
 ```
 
-**メリット:**
+## 3. なぜ同じサーバーの別ディレクトリか
 
-- 完全な動的DBアクセス
-- フィルター・ソート・ページネーションをサーバー側で処理
-- 在庫状況や発売日の変更を即座に反映可能
+- 既存の Nuxt 静的サイト（`nuxt generate` 産物）を **Apache 静的ホスティングのまま**運用できる
+- 商品情報だけを **動的API** に切り出すことで、Pokédexデータの再ビルドなしに商品情報を更新できる
+- サーバー管理・認証・SSL証明書を一元化できる
 
-**デメリット:**
+## 4. API の実装言語選択
 
-- 既存の「Apache への静的配置」構成からは外れる
-- ホスティング先を **Vercel / Netlify / Cloudflare Pages / Nodeサーバー** 等に変更する必要がある
+同じサーバー（Apache）上で動作させる場合、以下の選択肢があります。
 
-### 2.2 方針B: 外部BaaS（Supabase / Firebase）
+| 言語 | 備考 |
+|------|------|
+| **PHP** | 共有サーバーでも動作しやすく、SQLite/MySQL 両方に対応。推奨。 |
+| **Node.js** | Nuxt プロジェクトと言語統一できるが、Apache 上ではリバースプロキシ or PM2 が必要。 |
+| **Python** | mod_wsgi や CGI で動かせるが、共有サーバーでは制約が多い。 |
 
-Nuxt アプリは静的サイトのまま、ブラウザから Supabase Client SDK や Firebase SDK を使って商品DBに直接アクセスします。
+本提案では、**共有サーバーでも動かしやすい PHP + SQLite** を基本例とします。MySQL を使う場合も接続文字列を変えるだけでほぼ同じ構造が使えます。
 
-```text
-ブラウザ
-  ↓ Supabase JS Client
-Supabase (PostgreSQL) / Firebase
-```
+## 5. データベース設計
 
-**メリット:**
-
-- フロントエンドを静的ホスティング（Apache含む）したまま利用可能
-- 認証・リアルタイム更新・Row Level Security が使える
-
-**デメリット:**
-
-- 外部サービスへの依存
-- APIキー・RLS設定が必要
-
-### 2.3 方針C: 静的JSON + クライアントサイドフィルター（制約付き）
-
-ビルド時に全商品をJSON化し、クライアント側でフィルタリングします。DBアクセスではなく「静的データの動的フィルター」になります。
-
-**本要件では「DBにアクセス」が明示されているため、本提案では採用しません。**
-
-## 3. 推奨アーキテクチャ
-
-本提案では **方針A（Nuxt Server Routes + SQLite/PostgreSQL）** を基本としつつ、必要に応じて **方針B（Supabase）** への切り替えも容易な抽象化を入れます。
-
-```text
-┌────────────────────────────────────────────────────────────────────────┐
-│  フロントエンド (Nuxt 3)                                               │
-│  ├─ pages/pokedex/[area]/[id].vue   # 関連商品セクション                 │
-│  ├─ components/ProductList.vue      # フィルターUI + 商品一覧            │
-│  ├─ components/ProductFilter.vue    # ステータス・発売日フィルター        │
-│  ├─ composables/useProducts.ts    # 商品APIクライアント                │
-│  └─ composables/useFavorites.ts   # お気に入り（localStorage）         │
-├────────────────────────────────────────────────────────────────────────┤
-│  APIレイヤー (Nuxt Server Routes)                                      │
-│  ├─ server/api/products/index.get.ts   # 商品一覧取得（フィルター対応）  │
-│  ├─ server/api/products/[id].get.ts    # 商品詳細取得                    │
-│  ├─ server/utils/db.ts                 # DB接続・クエリ抽象化            │
-│  └─ server/utils/productRepository.ts  # 商品リポジトリ                │
-├────────────────────────────────────────────────────────────────────────┤
-│  データベース                                                          │
-│  ├─ PostgreSQL（本番推奨）                                             │
-│  └─ SQLite（開発・ローカル or 少量データ）                             │
-├────────────────────────────────────────────────────────────────────────┤
-│  既存静的データ                                                        │
-│  └─ generated-data/pokemon/, region/ 等 # ポケモン図鑑データは静的のまま │
-└────────────────────────────────────────────────────────────────────────┘
-```
-
-## 4. 商品DBスキーマ
-
-### 4.1 `products` テーブル
+### 5.1 `products` テーブル
 
 | カラム名 | 型 | 説明 |
 |----------|-----|------|
-| `id` | `TEXT` / `UUID` PRIMARY KEY | 商品ID |
+| `id` | `TEXT` PRIMARY KEY | 商品ID。例: `plush-pikachu-s` |
 | `name` | `TEXT` NOT NULL | 商品名 |
 | `description` | `TEXT` | 商品説明 |
 | `category` | `TEXT` | `plush`, `figure`, `card`, `stationery`, `game`, `apparel`, `other` |
@@ -106,40 +68,74 @@ Supabase (PostgreSQL) / Firebase
 | `url` | `TEXT` NOT NULL | 商品ページURL |
 | `source` | `TEXT` | `amazon`, `rakuten`, `yahoo`, `pokemon-center`, `other` |
 | `status` | `TEXT` NOT NULL | `available`（販売中）, `pre_order`（予約受付中）, `sold_out`（売切）, `unreleased`（未発売）, `discontinued`（販売終了） |
-| `release_date` | `DATE` | 発売日（ISO 8601: `YYYY-MM-DD`） |
-| `is_available` | `BOOLEAN` | `available` / `pre_order` の場合 true。`status` から導出可能だが、検索高速化用 |
-| `tags` | `TEXT[]` / `JSON` | 検索・フィルタ用タグ |
-| `affiliate_info` | `JSON` | ASP用追跡情報 |
-| `created_at` | `TIMESTAMP` | 作成日時 |
-| `updated_at` | `TIMESTAMP` | 更新日時 |
+| `release_date` | `TEXT` | ISO 8601 (`YYYY-MM-DD`) |
+| `tags` | `TEXT` | カンマ区切りのタグ |
+| `affiliate_info` | `TEXT` | JSON形式のASP用追跡情報 |
+| `created_at` | `TEXT` | ISO 8601 日時 |
+| `updated_at` | `TEXT` | ISO 8601 日時 |
 
-### 4.2 `product_pokemon_mappings` テーブル
+### 5.2 `product_pokemon_mappings` テーブル
 
 | カラム名 | 型 | 説明 |
 |----------|-----|------|
-| `product_id` | `TEXT` / `UUID` | 外部キー |
+| `product_id` | `TEXT` NOT NULL | 外部キー |
 | `pokemon_id` | `TEXT` NOT NULL | 全国No or フォームID（`25`, `25_00000000_0_000_0` 等） |
 | `priority` | `INTEGER` | 表示順。小さいほど先頭 |
 
-### 4.3 インデックス
+### 5.3 インデックス
 
 ```sql
-CREATE INDEX idx_products_status ON products(status);
-CREATE INDEX idx_products_release_date ON products(release_date);
-CREATE INDEX idx_products_available ON products(is_available);
-CREATE INDEX idx_mappings_pokemon ON product_pokemon_mappings(pokemon_id);
-CREATE INDEX idx_mappings_product ON product_pokemon_mappings(product_id);
+CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
+CREATE INDEX IF NOT EXISTS idx_products_release_date ON products(release_date);
+CREATE INDEX IF NOT EXISTS idx_mappings_pokemon ON product_pokemon_mappings(pokemon_id);
+CREATE INDEX IF NOT EXISTS idx_mappings_product ON product_pokemon_mappings(product_id);
 ```
 
-## 5. API設計
+### 5.4 初期化SQL（SQLite 例）
 
-### 5.1 商品一覧取得
+```sql
+-- init/schema.sql
+CREATE TABLE IF NOT EXISTS products (
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  category TEXT,
+  price INTEGER,
+  currency TEXT,
+  image_url TEXT,
+  url TEXT NOT NULL,
+  source TEXT,
+  status TEXT NOT NULL,
+  release_date TEXT,
+  tags TEXT,
+  affiliate_info TEXT,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
 
-```http
-GET /api/products?pokemonId=25&status=available&releaseDateFrom=2024-01-01&releaseDateTo=2024-12-31&limit=20&offset=0
+CREATE TABLE IF NOT EXISTS product_pokemon_mappings (
+  product_id TEXT NOT NULL,
+  pokemon_id TEXT NOT NULL,
+  priority INTEGER DEFAULT 0,
+  PRIMARY KEY (product_id, pokemon_id),
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_products_status ON products(status);
+CREATE INDEX IF NOT EXISTS idx_products_release_date ON products(release_date);
+CREATE INDEX IF NOT EXISTS idx_mappings_pokemon ON product_pokemon_mappings(pokemon_id);
+CREATE INDEX IF NOT EXISTS idx_mappings_product ON product_pokemon_mappings(product_id);
 ```
 
-**クエリパラメータ:**
+## 6. API 設計
+
+### 6.1 エンドポイント
+
+```text
+GET /pokedex-api/products.php?pokemonId=25&status=available&releaseDateFrom=2024-01-01&releaseDateTo=2024-12-31&limit=20&offset=0
+```
+
+### 6.2 クエリパラメータ
 
 | パラメータ | 型 | 説明 |
 |------------|-----|------|
@@ -150,10 +146,10 @@ GET /api/products?pokemonId=25&status=available&releaseDateFrom=2024-01-01&relea
 | `category` | `string` | カンマ区切り |
 | `search` | `string` | 商品名・説明・タグの部分一致 |
 | `sort` | `string` | `release_date_desc`, `release_date_asc`, `price_asc`, `price_desc`, `priority_asc` |
-| `limit` | `number` | 最大取得件数。デフォルト 20 |
+| `limit` | `number` | 最大取得件数。デフォルト 20、最大 100 |
 | `offset` | `number` | ページネーションオフセット |
 
-**レスポンス例:**
+### 6.3 レスポンス例
 
 ```json
 {
@@ -178,71 +174,163 @@ GET /api/products?pokemonId=25&status=available&releaseDateFrom=2024-01-01&relea
 }
 ```
 
-### 5.2 商品詳細取得
+### 6.4 PHP 実装例（SQLite）
 
-```http
-GET /api/products/{id}
-```
+```php
+<?php
+// /pokedex-api/products.php
+header('Content-Type: application/json; charset=utf-8');
 
-### 5.3 Server Route 実装例
-
-```typescript
-// server/api/products/index.get.ts
-import { defineEventHandler, getQuery } from 'h3'
-
-export default defineEventHandler(async (event) => {
-  const query = getQuery(event)
-  const { pokemonId, status, releaseDateFrom, releaseDateTo, limit = 20, offset = 0 } = query
-
-  const products = await getProducts({
-    pokemonId: parsePokemonIdList(pokemonId),
-    statuses: parseStatusList(status),
-    releaseDateFrom,
-    releaseDateTo,
-    limit: Number(limit),
-    offset: Number(offset)
-  })
-
-  return products
-})
-```
-
-### 5.4 DB接続抽象化
-
-```typescript
-// server/utils/productRepository.ts
-export interface ProductFilter {
-  pokemonId?: string[]
-  statuses?: string[]
-  releaseDateFrom?: string
-  releaseDateTo?: string
-  limit?: number
-  offset?: number
+// CORS: 同一サーバー内であっても別ディレクトリ/別サブドメインの場合は必要
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+$allowedOrigins = ['https://example.com']; // Nuxt サイトのドメイン
+if (in_array($origin, $allowedOrigins, true)) {
+    header("Access-Control-Allow-Origin: $origin");
+    header('Access-Control-Allow-Methods: GET, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type');
 }
 
-export async function getProducts(filter: ProductFilter) {
-  // 環境変数 or 設定で PostgreSQL / SQLite / Supabase を切り替え
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(204);
+    exit;
 }
+
+$dbPath = __DIR__ . '/db/products.db';
+$pdo = new PDO('sqlite:' . $dbPath);
+$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+
+$pokemonId = $_GET['pokemonId'] ?? '';
+$status = $_GET['status'] ?? '';
+$releaseDateFrom = $_GET['releaseDateFrom'] ?? '';
+$releaseDateTo = $_GET['releaseDateTo'] ?? '';
+$category = $_GET['category'] ?? '';
+$search = $_GET['search'] ?? '';
+$sort = $_GET['sort'] ?? 'priority_asc';
+$limit = min(100, max(1, intval($_GET['limit'] ?? 20)));
+$offset = max(0, intval($_GET['offset'] ?? 0));
+
+$conditions = [];
+$params = [];
+
+if ($pokemonId !== '') {
+    $ids = array_filter(array_map('trim', explode(',', $pokemonId)));
+    if ($ids) {
+        $placeholders = implode(',', array_fill(0, count($ids), '?'));
+        $conditions[] = "m.pokemon_id IN ($placeholders)";
+        $params = array_merge($params, $ids);
+    }
+}
+
+if ($status !== '') {
+    $statuses = array_filter(array_map('trim', explode(',', $status)));
+    if ($statuses) {
+        $placeholders = implode(',', array_fill(0, count($statuses), '?'));
+        $conditions[] = "p.status IN ($placeholders)";
+        $params = array_merge($params, $statuses);
+    }
+}
+
+if ($releaseDateFrom !== '') {
+    $conditions[] = "p.release_date >= ?";
+    $params[] = $releaseDateFrom;
+}
+
+if ($releaseDateTo !== '') {
+    $conditions[] = "p.release_date <= ?";
+    $params[] = $releaseDateTo;
+}
+
+if ($category !== '') {
+    $categories = array_filter(array_map('trim', explode(',', $category)));
+    if ($categories) {
+        $placeholders = implode(',', array_fill(0, count($categories), '?'));
+        $conditions[] = "p.category IN ($placeholders)";
+        $params = array_merge($params, $categories);
+    }
+}
+
+if ($search !== '') {
+    $conditions[] = "(p.name LIKE ? OR p.description LIKE ? OR p.tags LIKE ?)";
+    $like = '%' . $search . '%';
+    $params = array_merge($params, [$like, $like, $like]);
+}
+
+$where = $conditions ? 'WHERE ' . implode(' AND ', $conditions) : '';
+
+$orderBy = match ($sort) {
+    'release_date_desc' => 'p.release_date DESC NULLS LAST, m.priority ASC',
+    'release_date_asc' => 'p.release_date ASC NULLS LAST, m.priority ASC',
+    'price_asc' => 'p.price ASC NULLS LAST, m.priority ASC',
+    'price_desc' => 'p.price DESC NULLS LAST, m.priority ASC',
+    default => 'm.priority ASC, p.release_date DESC NULLS LAST'
+};
+
+$countSql = "SELECT COUNT(DISTINCT p.id) FROM products p JOIN product_pokemon_mappings m ON p.id = m.product_id $where";
+$countStmt = $pdo->prepare($countSql);
+$countStmt->execute($params);
+$total = $countStmt->fetchColumn();
+
+$sql = "SELECT DISTINCT p.*, m.priority FROM products p
+        JOIN product_pokemon_mappings m ON p.id = m.product_id
+        $where
+        ORDER BY $orderBy
+        LIMIT ? OFFSET ?";
+
+$stmt = $pdo->prepare($sql);
+$stmt->execute([...$params, $limit, $offset]);
+$rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+$items = array_map(function ($row) {
+    return [
+        'id' => $row['id'],
+        'name' => $row['name'],
+        'description' => $row['description'] ?? null,
+        'category' => $row['category'],
+        'price' => $row['price'] !== null ? (int)$row['price'] : null,
+        'currency' => $row['currency'] ?? null,
+        'imageUrl' => $row['image_url'] ?? null,
+        'url' => $row['url'],
+        'source' => $row['source'],
+        'status' => $row['status'],
+        'releaseDate' => $row['release_date'] ?? null,
+        'tags' => $row['tags'] ? array_map('trim', explode(',', $row['tags'])) : [],
+        'priority' => (int)$row['priority'],
+    ];
+}, $rows);
+
+echo json_encode([
+    'items' => $items,
+    'total' => (int)$total,
+    'limit' => $limit,
+    'offset' => $offset
+], JSON_UNESCAPED_UNICODE);
 ```
 
-## 6. 既存の静的Pokédexデータとの共存
+### 6.5 MySQL 接続に変更する場合
 
-商品情報だけを動的化し、Pokédexデータは既存の `generated-data/` 静的JSONを維持します。
+```php
+$host = 'localhost';
+$dbname = 'pokedex_products';
+$username = 'db_user';
+$password = 'db_password';
 
-```text
-静的: /data/pokemon/0025.json      → ポケモン詳細情報
-動的: /api/products?pokemonId=25   → 関連商品（フィルター可能）
+$pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
+$pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
 ```
 
-この分離により:
+SQL はほぼ同じです。ただし SQLite の `NULLS LAST` は MySQL 8.0+ でないと使えないため、`IFNULL(release_date, '9999-12-31')` 等で置き換えてください。
 
-- 既存のビルドパイプライン `scripts/build-data.ts` は変更しない、または最小限の変更にとどめる
-- 商品DB更新時に全ページを再ビルドする必要がない
-- Pokédexページの初回表示は高速に保たれる
+## 7. Nuxt フロントエンド側の変更
 
-## 7. フロントエンド実装
+### 7.1 環境変数
 
-### 7.1 商品用 Composable
+`.env` に API のベースURLを追加します。
+
+```bash
+NUXT_PUBLIC_PRODUCT_API_URL=https://example.com/pokedex-api
+```
+
+### 7.2 商品用 Composable
 
 ```typescript
 // composables/useProducts.ts
@@ -251,22 +339,64 @@ export interface ProductQuery {
   status?: string | string[]
   releaseDateFrom?: string
   releaseDateTo?: string
+  category?: string | string[]
   search?: string
-  sort?: string
+  sort?: 'release_date_desc' | 'release_date_asc' | 'price_asc' | 'price_desc' | 'priority_asc'
   limit?: number
   offset?: number
 }
 
+export interface Product {
+  id: string
+  name: string
+  description?: string
+  category: string
+  price?: number
+  currency?: string
+  imageUrl?: string
+  url: string
+  source: string
+  status: 'available' | 'pre_order' | 'sold_out' | 'unreleased' | 'discontinued'
+  releaseDate?: string
+  tags: string[]
+}
+
+export interface ProductListResponse {
+  items: Product[]
+  total: number
+  limit: number
+  offset: number
+}
+
+function buildProductQuery(query: ProductQuery): Record<string, string> {
+  const result: Record<string, string> = {}
+  if (query.pokemonId) result.pokemonId = Array.isArray(query.pokemonId) ? query.pokemonId.join(',') : query.pokemonId
+  if (query.status) result.status = Array.isArray(query.status) ? query.status.join(',') : query.status
+  if (query.releaseDateFrom) result.releaseDateFrom = query.releaseDateFrom
+  if (query.releaseDateTo) result.releaseDateTo = query.releaseDateTo
+  if (query.category) result.category = Array.isArray(query.category) ? query.category.join(',') : query.category
+  if (query.search) result.search = query.search
+  if (query.sort) result.sort = query.sort
+  if (query.limit) result.limit = String(query.limit)
+  if (query.offset !== undefined) result.offset = String(query.offset)
+  return result
+}
+
 export function useProducts() {
-  const fetchProducts = (query: ProductQuery) => {
-    return $fetch('/api/products', { query: buildProductQuery(query) })
+  const config = useRuntimeConfig()
+  const baseURL = config.public.productApiUrl?.replace(/\/$/, '') ?? '/pokedex-api'
+
+  const fetchProducts = (query: ProductQuery): Promise<ProductListResponse> => {
+    return $fetch(`${baseURL}/products.php`, {
+      query: buildProductQuery(query)
+    })
   }
 
   return { fetchProducts }
 }
 ```
 
-### 7.2 フィルターUI
+### 7.3 フィルターUI
 
 ```vue
 <!-- components/ProductFilter.vue -->
@@ -288,34 +418,102 @@ export function useProducts() {
       <input v-model="releaseDateTo" type="date">
     </fieldset>
 
-    <button type="button" @click="applyFilter">絞り込み</button>
-    <button type="button" @click="resetFilter">リセット</button>
+    <button type="button" @click="apply">絞り込み</button>
+    <button type="button" @click="reset">リセット</button>
   </form>
 </template>
+
+<script setup lang="ts">
+import { ref } from 'vue'
+
+const emit = defineEmits<{
+  update: [filter: { status: string[]; releaseDateFrom: string; releaseDateTo: string }]
+}>()
+
+const selectedStatuses = ref<string[]>([])
+const releaseDateFrom = ref('')
+const releaseDateTo = ref('')
+
+const apply = () => {
+  emit('update', {
+    status: selectedStatuses.value,
+    releaseDateFrom: releaseDateFrom.value,
+    releaseDateTo: releaseDateTo.value
+  })
+}
+
+const reset = () => {
+  selectedStatuses.value = []
+  releaseDateFrom.value = ''
+  releaseDateTo.value = ''
+  apply()
+}
+</script>
 ```
 
-### 7.3 商品一覧 + フィルター連携
+### 7.4 商品一覧コンポーネント
 
 ```vue
 <!-- components/ProductList.vue -->
 <template>
-  <section>
-    <ProductFilter v-model="filter" @update="onFilterUpdate" />
+  <section class="product-list-section">
+    <ProductFilter @update="onFilterUpdate" />
 
     <div v-if="pending">読み込み中...</div>
     <div v-else-if="error">エラーが発生しました。</div>
-    <ul v-else class="product-list">
-      <li v-for="product in data?.items" :key="product.id">
+    <ul v-else-if="data?.items.length" class="product-list">
+      <li v-for="product in data.items" :key="product.id">
         <ProductCard :product="product" />
       </li>
     </ul>
+    <p v-else>該当する商品がありません。</p>
 
     <button v-if="hasMore" @click="loadMore">もっと見る</button>
   </section>
 </template>
+
+<script setup lang="ts">
+import { computed, reactive, ref, watch } from 'vue'
+import type { ProductListResponse, ProductQuery } from '~/composables/useProducts'
+
+interface Props {
+  pokemonId: string | number
+}
+
+const props = defineProps<Props>()
+const { fetchProducts } = useProducts()
+
+const filter = reactive({
+  status: [] as string[],
+  releaseDateFrom: '',
+  releaseDateTo: ''
+})
+
+const query = computed<ProductQuery>(() => ({
+  pokemonId: String(props.pokemonId),
+  status: filter.status,
+  releaseDateFrom: filter.releaseDateFrom,
+  releaseDateTo: filter.releaseDateTo,
+  limit: 20,
+  offset: 0
+}))
+
+const { data, pending, error, refresh } = useAsyncData<ProductListResponse>(
+  () => `products-${props.pokemonId}-${JSON.stringify(filter)}`,
+  () => fetchProducts(query.value),
+  { server: false, default: () => ({ items: [], total: 0, limit: 20, offset: 0 }) }
+)
+
+const onFilterUpdate = (next: { status: string[]; releaseDateFrom: string; releaseDateTo: string }) => {
+  filter.status = next.status
+  filter.releaseDateFrom = next.releaseDateFrom
+  filter.releaseDateTo = next.releaseDateTo
+  refresh()
+}
+</script>
 ```
 
-### 7.4 詳細ページへの組み込み
+### 7.5 詳細ページへの組み込み
 
 ```vue
 <!-- pages/pokedex/[area]/[id].vue の関連箇所 -->
@@ -329,7 +527,7 @@ export function useProducts() {
 
 ### 8.1 保存先
 
-現時点では **ブラウザ内 `localStorage`** を使用します。将来的にユーザーアカウントを導入した場合、DBへの移行が可能です。
+現時点では **ブラウザ内 `localStorage`** を使用します。
 
 ```typescript
 // composables/useFavorites.ts
@@ -345,7 +543,11 @@ export function useFavorites() {
     localStorage.setItem('pokedex-favorites', JSON.stringify(next))
   }, { deep: true })
 
-  const toggleFavorite = (pokemonId: string) => { /* ... */ }
+  const toggleFavorite = (pokemonId: string) => {
+    const index = favorites.value.indexOf(pokemonId)
+    if (index >= 0) favorites.value.splice(index, 1)
+    else favorites.value.push(pokemonId)
+  }
   const isFavorite = (pokemonId: string) => favorites.value.includes(pokemonId)
 
   return { favorites: readonly(favorites), toggleFavorite, isFavorite }
@@ -354,28 +556,99 @@ export function useFavorites() {
 
 ### 8.2 お気に入り商品ページ
 
-`/favorites/products` で、お気に入りポケモンIDを `pokemonId` クエリパラメータとして `/api/products` に渡します。
+`/favorites/products` で、お気に入りポケモンIDを `pokemonId` クエリに渡して API を叩きます。
 
-```http
-GET /api/products?pokemonId=25,6,133&status=available&sort=release_date_desc
+```vue
+<script setup lang="ts">
+const { favorites } = useFavorites()
+const { fetchProducts } = useProducts()
+
+const { data } = useAsyncData('favorite-products', () => {
+  if (favorites.value.length === 0) {
+    return Promise.resolve({ items: [], total: 0, limit: 20, offset: 0 })
+  }
+  return fetchProducts({
+    pokemonId: favorites.value,
+    status: ['available', 'pre_order'],
+    sort: 'release_date_desc',
+    limit: 100
+  })
+}, { server: false })
+</script>
 ```
 
-## 9. 実装ステップ
+## 9. サーバー配置と Apache 設定例
 
-### Phase 1: 環境整備とDB設計
+### 9.1 ディレクトリ構成例
 
-1. ホスティング方針を確定（Server Routes + PostgreSQL / SQLite / Supabase）
-2. DBスキーマを作成（`products`, `product_pokemon_mappings`）
-3. `server/utils/db.ts` でDB接続を抽象化
-4. `server/utils/productRepository.ts` を実装
-5. `server/api/products/index.get.ts` を実装（フィルター対応）
+```text
+/var/www/html/
+├── pokedex-online/         # Nuxt 静的サイト
+│   ├── index.html
+│   └── pokedex/
+│       └── [area]/
+│           └── [id]/
+│               └── index.html
+└── pokedex-api/            # 商品API
+    ├── products.php
+    ├── init.php
+    └── db/
+        └── products.db     # SQLite の場合
+```
 
-### Phase 2: フロントエンド実装
+### 9.2 Apache 設定例
 
-1. `types/product.ts` に型定義を追加
-2. `composables/useProducts.ts` を作成
-3. `components/ProductFilter.vue` を作成
-4. `components/ProductCard.vue` / `components/ProductList.vue` を作成
+```apache
+# /etc/apache2/sites-available/pokedex-online.conf
+
+# Nuxt 静的サイト
+<Directory "/var/www/html/pokedex-online">
+    Options -Indexes +FollowSymLinks
+    AllowOverride All
+    Require all granted
+</Directory>
+
+# API ディレクトリ
+<Directory "/var/www/html/pokedex-api">
+    Options -Indexes +FollowSymLinks
+    AllowOverride All
+    Require all granted
+</Directory>
+```
+
+`.htaccess` で Nuxt の SPA/静的ルーティングに対応する場合は、必要に応じて `index.html` フォールバックを設定してください。
+
+### 9.3 CORS 設定
+
+API が **同一ドメインの別ディレクトリ** 配下の場合、`example.com/pokedex-api/products.php` と `example.com/pokedex-online/` は同一オリジンと見なされるため、CORS は原則不要です。
+
+ただし、開発時や別サブドメインを使う場合は `products.php` の先頭に CORS ヘッダーを追加してください。
+
+```php
+$origin = $_SERVER['HTTP_ORIGIN'] ?? '';
+$allowedOrigins = ['https://example.com', 'https://dev.example.com'];
+if (in_array($origin, $allowedOrigins, true)) {
+    header("Access-Control-Allow-Origin: $origin");
+    header('Access-Control-Allow-Methods: GET, OPTIONS');
+    header('Access-Control-Allow-Headers: Content-Type');
+}
+```
+
+## 10. 実装ステップ
+
+### Phase 1: API 基盤構築
+
+1. サーバーに `/pokedex-api/` ディレクトリを作成
+2. `init/schema.sql` と `init/seed.php` を作成し、SQLite/MySQL のテーブルを作成
+3. `products.php` を実装（検索・フィルター対応）
+4. `db/products.db`（SQLite）または MySQL DB を作成
+
+### Phase 2: フロントエンド統合
+
+1. `.env` / `.env.production` に `NUXT_PUBLIC_PRODUCT_API_URL` を追加
+2. `types/product.ts` に型定義を追加
+3. `composables/useProducts.ts` を作成
+4. `components/ProductFilter.vue` / `components/ProductCard.vue` / `components/ProductList.vue` を作成
 5. `pages/pokedex/[area]/[id].vue` に関連商品セクションを追加
 
 ### Phase 3: お気に入り機能
@@ -385,48 +658,42 @@ GET /api/products?pokemonId=25,6,133&status=available&sort=release_date_desc
 3. `/favorites` ページを新設
 4. `/favorites/products` ページでお気に入り商品をまとめ表示
 
-### Phase 4: 運用・管理機能
+### Phase 4: 運用・管理
 
-1. 商品データの登録・更新用の簡易管理画面 or API
-2. 商品データのCSV/JSONインポート機能
-3. 在庫・ステータス更新の自動化（外部API連携 or 定期実行）
-4. URL死活確認・価格監視のCIジョブ
+1. 商品登録・更新用の管理画面 or 簡易APIを作成
+2. CSV/JSON インポート機能
+3. 価格・在庫ステータスの定期更新ジョブ（cron + PHPスクリプト）
 
-## 10. セキュリティ・法務・パフォーマンス上の注意
+## 11. セキュリティ・法務・パフォーマンス上の注意
 
 ### セキュリティ
 
-- DB接続情報は `.env` で管理し、クライアントに漏出しない
-- SQLインジェクション対策: プリペアドステートメントを使用
-- 外部商品URLは入力時にサニタイズ（`javascript:` 等を拒否）
-- アフィリエイトIDなどはサーバー側で注入
+- DB接続情報は `.env` やサーバー環境変数で管理し、GitHub には含めない
+- SQLインジェクション対策: PDO のプリペアドステートメントを使用
+- `limit` / `offset` に上限を設定し、DoS を防ぐ
+- 外部商品URLは入力時にサニタイズ（`javascript:` スキーム等を拒否）
+- PHP のエラー表示は本番では無効化し、ログに記録
 
 ### 法務・表記
 
 - 商品画像は著作権に注意。公式サイトへのリンクのみを掲載する形が無難
 - PR・スポンサードリンクには `rel="sponsored"` を付与
 - 価格表記は「参考価格」や税込み/税抜きの明記を徹底
-- 未発売商品の表示には注意喚起を入れる
+- 未発売・売切商品の表示にはステータスラベルを明確に入れる
 
 ### パフォーマンス
 
 - `status`, `release_date`, `pokemon_id` にインデックスを張る
-- `limit`/`offset` を上限設定（例: max 100）
 - 商品画像は `loading="lazy"` + 適切な `width/height`
-- Nuxtの `useFetch` / `useAsyncData` でキャッシュ戦略を設定
-
-## 11. 既存「Apache静的ホスティング」からの移行について
-
-動的DBアクセスを実現するには、以下のいずれかの移行が必要です。
-
-| 移行パターン | 内容 |
-|--------------|------|
-| **A. Node/Edgeホスティングへ移行** | Vercel / Netlify / Cloudflare Pages / Nodeサーバー でNuxt Server Routesを使用 |
-| **B. APIを分離** | Apache上に静的Nuxtを置き、商品APIだけ別サーバー（EC2/Cloud Run等）で提供 |
-| **C. BaaSを使用** | 静的サイトのまま Supabase/Firebase から動的取得 |
+- `limit` はデフォルト 20、最大 100
+- 頻繁に呼ばれる API は Nuxt 側でクライアントキャッシュ or SWR を検討
 
 ## 12. まとめ
 
-改訂版の設計では、**商品情報をDB（PostgreSQL/SQLite/Supabase）で管理し、Nuxt Server Routes 経由で動的に取得・更新**します。`status` と `release_date` を含むフィルターUIを実装し、既存の静的Pokédexデータとは分離して動作させます。お気に入りは引き続き `localStorage` でブラウザ内保存とし、将来的に認証基盤を追加すればDBに移行できます。
+本提案では、**Nuxt 静的サイトをそのまま維持**しつつ、**同じサーバーの別ディレクトリに PHP + SQLite/MySQL の商品API** を配置し、ブラウザから動的に商品情報を取得する構成を採用しています。
 
-次のステップとして、**まずホスティング方針を確定**し、**Phase 1（DB設計 + API実装）** を進めることを推奨します。
+- 商品DBには `status` と `release_date` を持たせ、API クエリパラメータでフィルタリング
+- フロントエンドは `useProducts()` / `ProductFilter` / `ProductList` でAPIと連携
+- お気に入りは `localStorage` でブラウザ内保存
+
+次のステップとして、**まずは Phase 1（API 基盤構築）** を進め、テスト用に数件の商品データを入れて `/pokedex-api/products.php?pokemonId=25` が正しく動作することを確認することを推奨します。
