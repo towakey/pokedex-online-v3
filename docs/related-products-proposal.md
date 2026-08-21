@@ -14,22 +14,23 @@
 ## 2. 全体構成
 
 ```text
-同一サーバー
-├── /var/www/html/pokedex-online/    # Nuxt 静的生成サイト（Apache配信）
-│   ├── index.html
-│   ├── pokedex/
-│   └── ...
-│
-└── /var/www/html/pokedex-api/       # 商品API（別ディレクトリ）
-    ├── products/                    # 商品一覧・検索API
-    ├── init/                        # DB初期化スクリプト
-    └── db/                          # SQLiteの場合はDBファイルを配置
+pokedex-online.jp （Nuxt 静的サイト）
+  ├── index.html
+  └── pokedex/
+      └── [area]/[id]/index.html
+
+kyosserver.sakura.ne.jp/pokedex-api/ （PHP API）
+  ├── products.php           # 商品一覧・検索API
+  ├── cron/
+  │   └── fetch-products.php # cron から毎日実行
+  ├── lib/                   # PHP クラス群
+  └── db/                    # SQLiteの場合はDBファイルを配置
 ```
 
 ```text
 ブラウザ
-  ↓ GET https://example.com/pokedex-api/products.php?pokemonId=25&status=available
-APIディレクトリ (PHP / Node / Python)
+  ↓ GET https://kyosserver.sakura.ne.jp/pokedex-api/products.php?pokemonId=25&status=available
+kyosserver.sakura.ne.jp/pokedex-api/ （PHP + Apache）
   ↓ SQL
 SQLite / MySQL
 ```
@@ -50,7 +51,7 @@ SQLite / MySQL
 | **Node.js** | Nuxt プロジェクトと言語統一できるが、Apache 上ではリバースプロキシ or PM2 が必要。 |
 | **Python** | mod_wsgi や CGI で動かせるが、共有サーバーでは制約が多い。 |
 
-本提案では、**共有サーバーでも動かしやすい PHP + SQLite** を基本例とします。MySQL を使う場合も接続文字列を変えるだけでほぼ同じ構造が使えます。
+本提案では、**共有サーバーでも動かしやすい PHP + SQLite** を基本例とします。ただし、**さくらのレンタルサーバーなどの共有サーバーでは SQLite が利用できない、または制限のあるプランもある**ため、実運用では **PHP + MySQL** を推奨します。MySQL を使う場合も接続文字列を変えるだけでほぼ同じ構造が使えます。
 
 ## 5. データベース設計
 
@@ -131,8 +132,10 @@ CREATE INDEX IF NOT EXISTS idx_mappings_product ON product_pokemon_mappings(prod
 
 ### 6.1 エンドポイント
 
+ベースURL: `https://kyosserver.sakura.ne.jp/pokedex-api/`
+
 ```text
-GET /pokedex-api/products.php?pokemonId=25&status=available&releaseDateFrom=2024-01-01&releaseDateTo=2024-12-31&limit=20&offset=0
+GET https://kyosserver.sakura.ne.jp/pokedex-api/products.php?pokemonId=25&status=available&releaseDateFrom=2024-01-01&releaseDateTo=2024-12-31&limit=20&offset=0
 ```
 
 ### 6.2 クエリパラメータ
@@ -181,9 +184,9 @@ GET /pokedex-api/products.php?pokemonId=25&status=available&releaseDateFrom=2024
 // /pokedex-api/products.php
 header('Content-Type: application/json; charset=utf-8');
 
-// CORS: 同一サーバー内であっても別ディレクトリ/別サブドメインの場合は必要
+// CORS: 静的サイト (pokedex-online.jp) と API (kyosserver.sakura.ne.jp) は別サブドメインのため必要
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-$allowedOrigins = ['https://example.com']; // Nuxt サイトのドメイン
+$allowedOrigins = ['https://pokedex-online.jp']; // Nuxt 静的サイトのドメイン
 if (in_array($origin, $allowedOrigins, true)) {
     header("Access-Control-Allow-Origin: $origin");
     header('Access-Control-Allow-Methods: GET, OPTIONS');
@@ -327,7 +330,7 @@ SQL はほぼ同じです。ただし SQLite の `NULLS LAST` は MySQL 8.0+ で
 `.env` に API のベースURLを追加します。
 
 ```bash
-NUXT_PUBLIC_PRODUCT_API_URL=https://example.com/pokedex-api
+NUXT_PUBLIC_PRODUCT_API_URL=https://kyosserver.sakura.ne.jp/pokedex-api
 ```
 
 ### 7.2 商品用 Composable
@@ -599,34 +602,29 @@ const { data } = useAsyncData('favorite-products', () => {
 ### 9.2 Apache 設定例
 
 ```apache
-# /etc/apache2/sites-available/pokedex-online.conf
+# /etc/apache2/sites-available/kyosserver.sakura.ne.jp.conf
 
-# Nuxt 静的サイト
-<Directory "/var/www/html/pokedex-online">
-    Options -Indexes +FollowSymLinks
-    AllowOverride All
-    Require all granted
-</Directory>
-
-# API ディレクトリ
-<Directory "/var/www/html/pokedex-api">
+# 商品API ディレクトリ
+<Directory "/var/www/html/kyosserver.sakura.ne.jp/pokedex-api">
     Options -Indexes +FollowSymLinks
     AllowOverride All
     Require all granted
 </Directory>
 ```
 
+※ `pokedex-online.jp` 側は既存の Nuxt 静的サイトの設定をそのまま維持します。
+
 `.htaccess` で Nuxt の SPA/静的ルーティングに対応する場合は、必要に応じて `index.html` フォールバックを設定してください。
 
 ### 9.3 CORS 設定
 
-API が **同一ドメインの別ディレクトリ** 配下の場合、`example.com/pokedex-api/products.php` と `example.com/pokedex-online/` は同一オリジンと見なされるため、CORS は原則不要です。
+静的サイト `https://pokedex-online.jp` と API `https://kyosserver.sakura.ne.jp/pokedex-api` は**別サブドメイン**のため、ブラウザからAPIを呼ぶ際は **CORS 設定が必要**です。
 
-ただし、開発時や別サブドメインを使う場合は `products.php` の先頭に CORS ヘッダーを追加してください。
+`products.php` の先頭で以下のように `Access-Control-Allow-Origin` を返してください。
 
 ```php
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';
-$allowedOrigins = ['https://example.com', 'https://dev.example.com'];
+$allowedOrigins = ['https://pokedex-online.jp']; // 必要に応じて開発用ドメインも追加
 if (in_array($origin, $allowedOrigins, true)) {
     header("Access-Control-Allow-Origin: $origin");
     header('Access-Control-Allow-Methods: GET, OPTIONS');
@@ -682,9 +680,8 @@ if (in_array($origin, $allowedOrigins, true)) {
 ### 11.2 システム構成
 
 ```text
-サーバー
-├── /var/www/html/pokedex-online/       # Nuxt 静的サイト
-└── /var/www/html/pokedex-api/          # 商品API + クローラー
+kyosserver.sakura.ne.jp （さくらのレンタルサーバー）
+└── /var/www/html/kyosserver.sakura.ne.jp/pokedex-api/  # 商品API + クローラー
     ├── cron/
     │   └── fetch-products.php          # cron から毎日実行
     ├── lib/
@@ -979,4 +976,4 @@ class CrawlerLogger {
 - お気に入りは `localStorage` でブラウザ内保存
 - **PHP 製の cron クローラー**が1日1回各ASP/APIから商品情報を取得し、DBを自動更新
 
-次のステップとして、**まずは Phase 1（API 基盤構築）** を進め、テスト用に数件の商品データを入れて `/pokedex-api/products.php?pokemonId=25` が正しく動作することを確認することを推奨します。
+次のステップとして、**まずは Phase 1（API 基盤構築）** を進め、テスト用に数件の商品データを入れて `https://kyosserver.sakura.ne.jp/pokedex-api/products.php?pokemonId=25` が正しく動作することを確認することを推奨します。
