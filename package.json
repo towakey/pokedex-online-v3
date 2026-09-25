@@ -4,16 +4,25 @@
   "type": "module",
   "scripts": {
     "dev": "nuxt dev",
+    "clean": "tsx scripts/clean.ts",
     "build": "nuxt build",
-    "generate": "nuxt generate",
+    "generate": "tsx scripts/clean.ts && nuxt generate",
     "preview": "nuxt preview",
     "setup": "tsx scripts/setup.ts",
     "build:data": "tsx scripts/build-data.ts",
+    "build:og-cards": "tsx scripts/build-og-cards.ts",
+    "validate:production-config": "tsx scripts/validate-production.ts config",
+    "validate:production-output": "tsx scripts/validate-production.ts output",
+    "test:production-validation": "tsx scripts/validate-production.ts self-test",
     "prepare": "nuxt prepare"
   },
   "devDependencies": {
+    "@resvg/resvg-js": "^2.6.2",
     "@types/node": "^22.10.2",
+    "flag-icons": "^7.5.0",
     "nuxt": "^3.15.4",
+    "satori": "^0.12.1",
+    "sharp": "^0.35.3",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2"
   },

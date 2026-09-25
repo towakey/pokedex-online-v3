@@ -2,7 +2,20 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useSiteAppConfig } from '~/composables/useSiteAppConfig'
 import { useTypeColor } from '~/composables/useTypeColor'
+import { useTypeEffectiveness } from '~/composables/useTypeEffectiveness'
+import { useTypeName } from '~/composables/useTypeName'
+import { useTranslation } from '~/composables/useTranslation'
+import { usePokemonCollections } from '~/composables/usePokemonCollections'
 import type { PokemonDetail, RegionEntry, RegionMeta, SearchIndexItem } from '~/composables/usePokedex'
+import flagJp from 'flag-icons/flags/4x3/jp.svg'
+import flagUs from 'flag-icons/flags/4x3/us.svg'
+import flagFr from 'flag-icons/flags/4x3/fr.svg'
+import flagIt from 'flag-icons/flags/4x3/it.svg'
+import flagDe from 'flag-icons/flags/4x3/de.svg'
+import flagEs from 'flag-icons/flags/4x3/es.svg'
+import flagKr from 'flag-icons/flags/4x3/kr.svg'
+import flagCn from 'flag-icons/flags/4x3/cn.svg'
+import flagTw from 'flag-icons/flags/4x3/tw.svg'
 
 type StatKey = 'hp' | 'attack' | 'defense' | 'special_attack' | 'special_defense' | 'speed'
 type LocalizedTextMap = Record<string, string>
@@ -84,6 +97,21 @@ interface GlobalDescriptionGroup {
   versions: GlobalDescriptionGroupVersion[]
 }
 
+interface EvolutionView {
+  key: string
+  version: string
+  versionLabel: string
+  regionSlug: string
+  regionLabel: string
+  pokemonId: string
+  dex: number
+  condition: string
+  form?: string
+  name: string
+  imagePath: string
+  to: string
+}
+
 interface DetailSharePayload {
   title: string
   text: string
@@ -94,6 +122,7 @@ interface DetailSharePayload {
 interface LanguageOption {
   key: string
   label: string
+  flag?: string
   aliases?: string[]
 }
 
@@ -139,6 +168,10 @@ interface TagVoteResponse {
 const appConfig = useSiteAppConfig()
 const runtimeConfig = useRuntimeConfig() as { public?: { appBaseURL?: string, pokedexApiBaseURL?: string } }
 const { getTypeColor } = useTypeColor()
+const { getDefenseMatchupGroups } = useTypeEffectiveness()
+const { getTypeName, getTypeNames } = useTypeName()
+const { language: selectedLanguage, setLanguage, t, getStatLabel, getRegionLabel, getFormFallbackLabel } = useTranslation()
+const { hydrate, recordHistory, isFavorite, toggleFavorite } = usePokemonCollections()
 const {
   buildPokemonDetailPath,
   formatKilograms,
@@ -223,43 +256,16 @@ const getPokedexVersionIconPath = (versionCode?: string): string => {
 }
 
 const LANGUAGE_OPTIONS: LanguageOption[] = [
-  { key: 'jpn', label: '日本語', aliases: ['ja', 'japanese'] },
-  { key: 'eng', label: 'English', aliases: ['en'] },
-  { key: 'fra', label: 'Français' },
-  { key: 'ita', label: 'Italiano' },
-  { key: 'ger', label: 'Deutsch', aliases: ['de'] },
-  { key: 'spa', label: 'Español', aliases: ['es'] },
-  { key: 'kor', label: '한국어', aliases: ['ko'] },
-  { key: 'chs', label: '简体中文', aliases: ['zh-cn', 'zh_hans'] },
-  { key: 'cht', label: '繁體中文', aliases: ['zh-tw', 'zh_hant'] }
+  { key: 'jpn', label: '日本語', flag: flagJp, aliases: ['ja', 'japanese'] },
+  { key: 'eng', label: 'English', flag: flagUs, aliases: ['en'] },
+  { key: 'fra', label: 'Français', flag: flagFr },
+  { key: 'ita', label: 'Italiano', flag: flagIt },
+  { key: 'ger', label: 'Deutsch', flag: flagDe, aliases: ['de'] },
+  { key: 'spa', label: 'Español', flag: flagEs, aliases: ['es'] },
+  { key: 'kor', label: '한국어', flag: flagKr, aliases: ['ko'] },
+  { key: 'chs', label: '简体中文', flag: flagCn, aliases: ['zh-cn', 'zh_hans'] },
+  { key: 'cht', label: '繁體中文', flag: flagTw, aliases: ['zh-tw', 'zh_hant'] }
 ]
-
-const FALLBACK_LANGUAGE_MAP = {
-  normal: {
-    jpn: '通常',
-    eng: 'Standard',
-    fra: 'Normal',
-    ita: 'Normale',
-    ger: 'Standard',
-    spa: 'Normal',
-    kor: '기본',
-    chs: '通常',
-    cht: '通常',
-    default: 'Standard'
-  },
-  form: (index: number) => ({
-    jpn: `フォーム ${index}`,
-    eng: `Form ${index}`,
-    fra: `Forme ${index}`,
-    ita: `Forma ${index}`,
-    ger: `Form ${index}`,
-    spa: `Forma ${index}`,
-    kor: `폼 ${index}`,
-    chs: `形态${index}`,
-    cht: `形態${index}`,
-    default: `Form ${index}`
-  })
-} as const
 
 const normalizeLanguageKey = (value: string): string => String(value).trim().toLowerCase()
 
@@ -410,11 +416,16 @@ const createStaticLocalizedMap = (value: string): LocalizedTextMap => ({
 })
 
 const createFormFallbackLabelMap = (index: number, entryCount: number): LocalizedTextMap => {
-  if (entryCount > 1) {
-    return FALLBACK_LANGUAGE_MAP.form(index + 1)
+  const map: LocalizedTextMap = {}
+  for (const option of LANGUAGE_OPTIONS) {
+    const value = getFormFallbackLabel(index + 1, entryCount, option.key)
+    map[option.key] = value
+    for (const alias of option.aliases ?? []) {
+      map[alias] = value
+    }
   }
-
-  return FALLBACK_LANGUAGE_MAP.normal
+  map.default = getFormFallbackLabel(index + 1, entryCount)
+  return map
 }
 
 const normalizeFormSelectorKey = (value: string): string => {
@@ -550,20 +561,11 @@ if (rawPokemonId.value) {
   }
 }
 
-const statLabels = {
-  hp: 'HP',
-  attack: 'こうげき',
-  defense: 'ぼうぎょ',
-  special_attack: 'とくこう',
-  special_defense: 'とくぼう',
-  speed: 'すばやさ'
-} as const
-
 const { data } = await useAsyncData<PokemonPageData>(() => `pokedex-pokemon-${areaSlug.value}-${rawPokemonId.value}`, async () => {
   if (!rawPokemonId.value) {
     return {
       ...createDefaultPokemonPageData(areaSlug.value),
-      message: 'ポケモン番号が不正です。'
+      message: t('pokemon.invalidNo')
     }
   }
 
@@ -586,7 +588,7 @@ const { data } = await useAsyncData<PokemonPageData>(() => `pokedex-pokemon-${ar
       return {
         ...createDefaultPokemonPageData(areaSlug.value),
         areaLabel: matchedRegion?.label ?? areaSlug.value,
-        message: 'ポケモン番号が不正です。'
+        message: t('pokemon.invalidNo')
       }
     }
 
@@ -595,7 +597,7 @@ const { data } = await useAsyncData<PokemonPageData>(() => `pokedex-pokemon-${ar
       return {
         ...createDefaultPokemonPageData(areaSlug.value),
         areaLabel: matchedRegion?.label ?? areaSlug.value,
-        message: '対象ポケモンのデータが見つかりません。'
+        message: t('pokemon.notFound')
       }
     }
 
@@ -624,7 +626,7 @@ const { data } = await useAsyncData<PokemonPageData>(() => `pokedex-pokemon-${ar
       return {
         ...createDefaultPokemonPageData(areaSlug.value),
         areaLabel: matchedRegion?.label ?? areaSlug.value,
-        message: '対象ポケモンのデータが見つかりません。'
+        message: t('pokemon.notFound')
       }
     }
 
@@ -635,9 +637,15 @@ const { data } = await useAsyncData<PokemonPageData>(() => `pokedex-pokemon-${ar
       pokemon
     }))
 
-    const uniqueDexEntries = [...new Map(
-      sortedEntries.map((entry: RegionEntry) => [entry.dex, entry] as const)
-    ).values()]
+    const uniqueDexEntries: RegionEntry[] = []
+    const seenDexNumbers = new Set<number>()
+    for (const entry of sortedEntries) {
+      if (seenDexNumbers.has(entry.dex)) {
+        continue
+      }
+      seenDexNumbers.add(entry.dex)
+      uniqueDexEntries.push(entry)
+    }
     const currentEntryIndex = uniqueDexEntries.findIndex((entry: RegionEntry) => entry.dex === currentDex)
     const createPageLink = (entry?: RegionEntry): PokemonPageLink | null => {
       if (!entry) {
@@ -669,13 +677,12 @@ const { data } = await useAsyncData<PokemonPageData>(() => `pokedex-pokemon-${ar
     return {
       ...createDefaultPokemonPageData(areaSlug.value),
       areaLabel: areaSlug.value,
-      message: '対象ポケモンのデータが見つかりません。'
+      message: t('pokemon.notFound')
     }
   }
 })
 
 const pageData = computed<PokemonPageData>(() => data.value ?? createDefaultPokemonPageData(areaSlug.value))
-const selectedLanguage = ref<string>('jpn')
 const availableLanguages = computed<LanguageOption[]>(() => {
   const maps = pageData.value.entries.flatMap((entry: PokemonPageEntry) => [
     entry.pokemon.names,
@@ -711,7 +718,7 @@ const formEntries = computed<FormEntryView[]>(() => {
     const selectorMap = selectorMaps[index]
     const displayLabel = getLocalizedText(labelMap, selectedLanguage.value, getLocalizedText(labelMap, 'default', entry.pokemon.name)) ?? entry.pokemon.name
     const selector = getLocalizedText(selectorMap, selectedLanguage.value, getLocalizedText(selectorMap, 'default', displayLabel)) ?? displayLabel
-    const typeLabel = entry.pokemon.types.join(' / ') || 'タイプ 不明'
+    const typeLabel = getTypeNames(entry.pokemon.types, selectedLanguage.value).join(' / ') || t('pokemon.unknownType')
 
     return {
       ...entry,
@@ -741,13 +748,38 @@ const activeEntry = computed<FormEntryView | null>(() => {
   return formEntries.value[0] ?? null
 })
 const pokemon = computed<PokemonDetail | null>(() => activeEntry.value?.pokemon ?? null)
+const currentDetailPath = computed(() => activeEntry.value?.to ?? route.path)
+const pokemonIsFavorite = computed(() => isFavorite(pokemon.value?.id))
+const handleFavoriteToggle = () => {
+  if (!pokemon.value) {
+    return
+  }
+
+  toggleFavorite(pokemon.value, currentDetailPath.value)
+}
 const displayPokemonName = computed(() => getLocalizedText(pokemon.value?.names, selectedLanguage.value, pokemon.value?.name) ?? pokemon.value?.name ?? '')
-const displayPokemonClassification = computed(() => getLocalizedText(pokemon.value?.classifications, selectedLanguage.value, pokemon.value?.classification ?? '不明') ?? pokemon.value?.classification ?? '不明')
+const displayPokemonClassification = computed(() => getLocalizedText(pokemon.value?.classifications, selectedLanguage.value, pokemon.value?.classification ?? t('common.unknown')) ?? pokemon.value?.classification ?? t('common.unknown'))
 const previousPokemonName = computed(() => pageData.value.previousPokemon ? getLocalizedText(pageData.value.previousPokemon.names, selectedLanguage.value, pageData.value.previousPokemon.name) ?? pageData.value.previousPokemon.name : '')
 const nextPokemonName = computed(() => pageData.value.nextPokemon ? getLocalizedText(pageData.value.nextPokemon.names, selectedLanguage.value, pageData.value.nextPokemon.name) ?? pageData.value.nextPokemon.name : '')
 const currentDexLabel = computed(() => pageData.value.dex !== null ? formatPokemonNumber(pageData.value.dex) : '')
 const backPath = computed(() => `${appConfig.navigation.pokedex}/${pageData.value.areaSlug || appConfig.site.defaultArea}`)
 const isGlobalArea = computed(() => pageData.value.areaSlug === 'global')
+const displayedEvolutions = computed<EvolutionView[]>(() => (pokemon.value?.evolutions ?? [])
+  .filter((entry) => isGlobalArea.value || normalizeRegionSlug(entry.regionSlug) === pageData.value.areaSlug)
+  .map((entry) => ({
+    key: `${entry.regionSlug}:${entry.pokemonId}:${entry.condition}:${entry.form ?? ''}`,
+    version: entry.version,
+    versionLabel: entry.versionLabel,
+    regionSlug: entry.regionSlug,
+    regionLabel: getRegionLabel(entry.regionSlug) || entry.regionLabel,
+    pokemonId: entry.pokemonId,
+    dex: entry.dex,
+    condition: entry.condition,
+    form: entry.form,
+    name: getLocalizedText(entry.names, selectedLanguage.value, entry.name) ?? entry.name,
+    imagePath: getPokemonImagePath(entry.pokemonId),
+    to: buildPokemonDetailPath(entry.regionSlug, entry.dex, entry.pokemonId)
+  })))
 const hasMultipleEntries = computed(() => pageData.value.entries.length > 1)
 const currentPokedexTitle = computed(() => formatPokedexTitle(pageData.value.areaSlug, pageData.value.areaLabel))
 const currentShareTitle = computed(() => {
@@ -758,14 +790,14 @@ const currentShareTitle = computed(() => {
     return `${pokemonName} -${pokedexTitle}`
   }
 
-  return pokemonName || pokedexTitle || 'ポケモン図鑑'
+  return pokemonName || pokedexTitle || t('pokedex.title')
 })
 const expandedGlobalDescriptionKeys = ref<string[]>([])
 const breadcrumbItems = computed(() => [
-  { label: 'ホーム', to: appConfig.navigation.home },
-  { label: 'ポケモン図鑑', to: appConfig.navigation.pokedex },
-  { label: pageData.value.areaLabel, to: backPath.value },
-  { label: displayPokemonName.value || 'ポケモン詳細' }
+  { label: t('common.home'), to: appConfig.navigation.home },
+  { label: t('pokedex.title'), to: appConfig.navigation.pokedex },
+  { label: currentRegionLabel.value, to: backPath.value },
+  { label: displayPokemonName.value || t('pokemon.detailTitle') }
 ])
 const debugPayload = computed(() => JSON.stringify({
   route: {
@@ -793,10 +825,10 @@ const globalDescriptionItems = computed<GlobalDescriptionEntry[]>(() => (pokemon
     label: entry.label,
     groupDescription: getSelectedPokedexGroupText(entry.descriptions, selectedLanguage.value)
       ?? getSelectedLanguageText(entry.descriptions, selectedLanguage.value)
-      ?? 'No data',
+      ?? t('common.unknown'),
     description: getSelectedPokedexDescriptionText(entry.descriptions, selectedLanguage.value, entry.versionCode)
       ?? getSelectedPokedexGroupText(entry.descriptions, selectedLanguage.value)
-      ?? 'No data',
+      ?? t('common.unknown'),
     descriptions: entry.descriptions,
     versionCode: entry.versionCode,
     regionLinks: entry.regionLinks
@@ -825,7 +857,7 @@ const createDescriptionGroups = (entries: GlobalDescriptionEntry[]): GlobalDescr
       versionCode: entry.versionCode,
       regionLinks: (entry.regionLinks ?? []).map((regionLink) => ({
         key: `${regionLink.regionSlug}:${regionLink.regionDex}`,
-        label: regionLink.regionLabel,
+        label: getRegionLabel(regionLink.regionSlug) || regionLink.regionLabel,
         dex: regionLink.regionDex,
         to: buildPokemonDetailPath(regionLink.regionSlug, regionLink.regionDex)
       }))
@@ -867,20 +899,56 @@ const globalDescriptionGroups = computed<GlobalDescriptionGroup[]>(() => createD
 const regionalDescriptionGroups = computed<GlobalDescriptionGroup[]>(() => createDescriptionGroups(regionalDescriptionItems.value))
 const displayedDescriptionGroups = computed<GlobalDescriptionGroup[]>(() => isGlobalArea.value ? globalDescriptionGroups.value : regionalDescriptionGroups.value)
 const pokemonImagePath = computed(() => pokemon.value ? getPokemonImagePath(pokemon.value.id) : '')
+const ogImagePath = computed(() => pokemon.value ? `/images/og/${formatPokemonRouteId(pokemon.value.dex)}.png` : '')
 const pokemonImageVisible = ref(true)
 const hiddenVersionIcons = ref<Record<string, boolean>>({})
+const statKeys: StatKey[] = ['hp', 'attack', 'defense', 'special_attack', 'special_defense', 'speed']
 const statEntries = computed<StatEntry[]>(() => {
   const stats = pokemon.value?.stats ?? {}
 
-  return (Object.entries(statLabels) as Array<[keyof typeof statLabels, string]>)
-    .map(([key, label]) => ({
+  return statKeys
+    .map((key) => ({
       key,
-      label,
+      label: getStatLabel(key, selectedLanguage.value),
       value: stats[key] ?? 0
     }))
     .filter((entry: StatEntry) => entry.value > 0)
 })
-const maxStat = computed<number>(() => Math.max(...statEntries.value.map((entry: StatEntry) => entry.value), 0))
+const maxStat = computed<number>(() => Math.max(...statEntries.value.map((entry: StatEntry) => entry.value), 255))
+const statTotal = computed<number>(() => statEntries.value.reduce((total, entry) => total + entry.value, 0))
+const getStatFillClass = (value: number): string => {
+  if (value >= 120) {
+    return 'stat-row__fill--high'
+  }
+
+  if (value >= 80) {
+    return 'stat-row__fill--mid'
+  }
+
+  return 'stat-row__fill--low'
+}
+const typeMatchupGroups = computed(() => getDefenseMatchupGroups(pokemon.value?.types ?? []))
+const getMatchupGroupLabel = (multiplier: number): string => {
+  if (multiplier >= 2) {
+    return `${t('pokemon.weakTo')} ×${multiplier}`
+  }
+
+  if (multiplier === 0) {
+    return t('pokemon.immuneTo')
+  }
+
+  return `${t('pokemon.resistantTo')} ×${multiplier}`
+}
+const DESCRIPTION_PREVIEW_LIMIT = 6
+const showAllDescriptions = ref(false)
+const hasHiddenDescriptions = computed(() => displayedDescriptionGroups.value.length > DESCRIPTION_PREVIEW_LIMIT)
+const visibleDescriptionGroups = computed(() => (
+  showAllDescriptions.value
+    ? displayedDescriptionGroups.value
+    : displayedDescriptionGroups.value.slice(0, DESCRIPTION_PREVIEW_LIMIT)
+))
+const swipeStartX = ref<number | null>(null)
+const swipeStartY = ref<number | null>(null)
 const tagUiLanguage = computed<'jpn' | 'eng'>(() => normalizeLanguageKey(selectedLanguage.value) === 'eng' ? 'eng' : 'jpn')
 const isTagDialogVisible = ref(false)
 const existingTags = ref<TagItem[]>([])
@@ -979,11 +1047,11 @@ const buildDescriptionSharePayload = (description: string): DetailSharePayload =
 }
 
 const handleShareCopied = () => {
-  showTagSnackbar(getTagText('共有内容をコピーしました', 'Share text copied to clipboard'), 'success')
+  showTagSnackbar(t('pokemon.shareCopied'), 'success')
 }
 
 const handleShareError = () => {
-  showTagSnackbar(getTagText('共有に失敗しました', 'Failed to share'), 'error')
+  showTagSnackbar(t('pokemon.shareFailed'), 'error')
 }
 
 const getCurrentTagArea = (): string => pageData.value.areaSlug || appConfig.site.defaultArea
@@ -996,10 +1064,11 @@ const getCurrentTagPokedexNo = (): number => {
   return activeEntry.value?.localDex ?? pageData.value.dex ?? 0
 }
 
+const currentRegionLabel = computed(() => getRegionLabel(pageData.value.areaSlug))
 const tagDialogSubtitle = computed(() => {
   const areaLabel = isGlobalArea.value
-    ? getTagText('全地域', 'All Regions')
-    : pageData.value.areaLabel
+    ? currentRegionLabel.value
+    : currentRegionLabel.value
   const pokedexNo = getCurrentTagPokedexNo()
   return `${areaLabel} / No.${String(pokedexNo).padStart(4, '0')}`
 })
@@ -1051,12 +1120,12 @@ const validateTagInput = () => {
   }
 
   if (trimmed.length > 50) {
-    tagInputError.value = getTagText('タグは50文字以内で入力してください', 'Tag must be 50 characters or less')
+    tagInputError.value = t('pokemon.tagMaxLength')
     return
   }
 
   const isDuplicate = scopedExistingTags.value.some((tagItem) => tagItem.tag.toLocaleLowerCase() === trimmed.toLocaleLowerCase())
-  tagInputError.value = isDuplicate ? getTagText('このタグは既に存在します', 'This tag already exists') : ''
+  tagInputError.value = isDuplicate ? t('pokemon.tagDuplicate') : ''
 }
 
 const canSubmitTag = computed(() => {
@@ -1163,7 +1232,7 @@ const voteTag = async (tagId: number | undefined, voteType: 'good' | 'bad') => {
     }
 
     if (!response.ok || !payload?.success) {
-      throw new Error(payload?.error || getTagText('投票に失敗しました', 'Failed to vote'))
+      throw new Error(payload?.error || t('pokemon.tagVoteFailed'))
     }
 
     const nextTags = existingTags.value.slice()
@@ -1206,7 +1275,7 @@ const voteTag = async (tagId: number | undefined, voteType: 'good' | 'bad') => {
     }
   }
   catch (error) {
-    showTagSnackbar(error instanceof Error ? error.message : getTagText('投票に失敗しました', 'Failed to vote'), 'error')
+    showTagSnackbar(error instanceof Error ? error.message : t('pokemon.tagVoteFailed'), 'error')
   }
   finally {
     isVoting.value = null
@@ -1235,7 +1304,7 @@ const submitTagSuggestion = async () => {
   }
 
   if (!area || !pokedexNo) {
-    showTagSnackbar(getTagText('図鑑番号が取得できませんでした', 'Could not resolve Pokedex number'), 'error')
+    showTagSnackbar(t('pokemon.tagResolveFailed'), 'error')
     return
   }
 
@@ -1267,11 +1336,11 @@ const submitTagSuggestion = async () => {
     }
 
     if (!response.ok || !payload?.success) {
-      throw new Error(payload?.error || getTagText('提案に失敗しました', 'Failed to suggest tag'))
+      throw new Error(payload?.error || t('pokemon.tagSuggestFailed'))
     }
 
     showTagSnackbar(
-      getTagText(`タグ「${trimmed}」を提案しました`, `Tag "${trimmed}" suggested successfully`),
+      t('pokemon.tagSuggested', { tag: trimmed }),
       'success'
     )
     await fetchExistingTags()
@@ -1279,7 +1348,7 @@ const submitTagSuggestion = async () => {
     tagInputError.value = ''
   }
   catch (error) {
-    showTagSnackbar(error instanceof Error ? error.message : getTagText('提案に失敗しました', 'Failed to suggest tag'), 'error')
+    showTagSnackbar(error instanceof Error ? error.message : t('pokemon.tagSuggestFailed'), 'error')
   }
   finally {
     isSubmittingTag.value = false
@@ -1312,6 +1381,33 @@ const toggleGlobalDescriptionGroup = (groupKey: string) => {
   expandedGlobalDescriptionKeys.value = [...expandedGlobalDescriptionKeys.value, groupKey]
 }
 
+const handleSwipeStart = (event: TouchEvent) => {
+  swipeStartX.value = event.changedTouches[0]?.clientX ?? null
+  swipeStartY.value = event.changedTouches[0]?.clientY ?? null
+}
+
+const handleSwipeEnd = async (event: TouchEvent) => {
+  if (swipeStartX.value === null || swipeStartY.value === null) {
+    return
+  }
+
+  const endX = event.changedTouches[0]?.clientX ?? swipeStartX.value
+  const endY = event.changedTouches[0]?.clientY ?? swipeStartY.value
+  const deltaX = endX - swipeStartX.value
+  const deltaY = endY - swipeStartY.value
+  swipeStartX.value = null
+  swipeStartY.value = null
+
+  if (Math.abs(deltaX) < 72 || Math.abs(deltaX) < Math.abs(deltaY) * 1.4) {
+    return
+  }
+
+  const target = deltaX < 0 ? pageData.value.nextPokemon : pageData.value.previousPokemon
+  if (target?.to) {
+    await navigateTo(target.to)
+  }
+}
+
 watch(
   [selectedLanguage, () => activeEntry.value?.selector, () => pageData.value.dex, () => pageData.value.areaSlug],
   async () => {
@@ -1338,6 +1434,7 @@ watch(() => pokemon.value?.id, () => {
   pokemonImageVisible.value = true
   hiddenVersionIcons.value = {}
   expandedGlobalDescriptionKeys.value = []
+  showAllDescriptions.value = false
 })
 
 watch(displayedDescriptionGroups, (groups) => {
@@ -1361,20 +1458,39 @@ watch(
 )
 
 onMounted(() => {
+  hydrate()
+  if (pokemon.value) {
+    recordHistory(pokemon.value, currentDetailPath.value)
+  }
   void fetchExistingTags()
 })
+
+watch(
+  [() => pokemon.value?.id, currentDetailPath],
+  () => {
+    if (!import.meta.client || !pokemon.value) {
+      return
+    }
+
+    recordHistory(pokemon.value, currentDetailPath.value)
+  }
+)
 
 // 言語切り替え関数
 const selectedLanguageIndex = computed(() => availableLanguages.value.findIndex(lang => lang.key === selectedLanguage.value))
 
+const selectLanguage = (key: string) => {
+  setLanguage(key)
+}
+
 const prevLanguage = () => {
   const newIndex = (selectedLanguageIndex.value - 1 + availableLanguages.value.length) % availableLanguages.value.length
-  selectedLanguage.value = availableLanguages.value[newIndex].key
+  setLanguage(availableLanguages.value[newIndex].key)
 }
 
 const nextLanguage = () => {
   const newIndex = (selectedLanguageIndex.value + 1) % availableLanguages.value.length
-  selectedLanguage.value = availableLanguages.value[newIndex].key
+  setLanguage(availableLanguages.value[newIndex].key)
 }
 
 // フォーム切り替え関数
@@ -1397,21 +1513,22 @@ const seoDescription = computed(() => {
 
   const name = displayPokemonName.value
   if (name) {
+    const translatedTypes = getTypeNames((pokemon.value?.types ?? []).filter(Boolean), selectedLanguage.value)
     const summaryParts = [
-      `${name}（${displayPokemonClassification.value}）の図鑑情報。`,
-      (pokemon.value?.types ?? []).filter(Boolean).length > 0 ? `タイプ: ${(pokemon.value?.types ?? []).filter(Boolean).join('・')}。` : '',
-      '種族値・特性・図鑑説明を掲載しています。'
+      t('pokemon.seoNameClassification', { name, classification: displayPokemonClassification.value }),
+      translatedTypes.length > 0 ? t('pokemon.seoType', { types: translatedTypes.join('・') }) : '',
+      t('pokemon.seoFooter')
     ]
     return summaryParts.filter(Boolean).join('')
   }
 
-  return 'ポケモンの種族値・タイプ・特性・図鑑説明をまとめた詳細ページです。'
+  return t('pokemon.detailTitle')
 })
 
 useSiteSeo({
-  title: () => pokemon.value ? currentShareTitle.value : 'ポケモン詳細',
+  title: () => pokemon.value ? currentShareTitle.value : t('pokemon.detailTitle'),
   description: () => seoDescription.value,
-  image: () => pokemonImagePath.value || undefined,
+  image: () => ogImagePath.value || undefined,
   type: 'article'
 })
 
@@ -1439,7 +1556,7 @@ useJsonLd(() => {
         '@type': 'WebPage',
         name: currentShareTitle.value,
         description: seoDescription.value,
-        ...(pokemonImagePath.value ? { image: toAbsoluteUrl(pokemonImagePath.value) } : {}),
+        ...(ogImagePath.value ? { image: toAbsoluteUrl(ogImagePath.value) } : {}),
         breadcrumb: breadcrumbList
       },
       breadcrumbList
@@ -1451,9 +1568,9 @@ useJsonLd(() => {
 
 <template>
   <div class="container page-stack">
-    <AppBreadcrumbs :items="breadcrumbItems" />
+    <AppBreadcrumbs :items="breadcrumbItems" :json-ld="false" />
 
-    <section v-if="pokemon" class="page-stack">
+    <section v-if="pokemon" class="page-stack" @touchstart.passive="handleSwipeStart" @touchend.passive="handleSwipeEnd">
       <section class="surface section-card detail-nav">
         <div class="detail-nav__slot detail-nav__slot--start">
           <NuxtLink
@@ -1467,7 +1584,7 @@ useJsonLd(() => {
 
         <div class="detail-nav__slot detail-nav__slot--center">
           <NuxtLink :to="backPath" class="button-primary button-primary--secondary detail-nav__top">
-            一覧へ
+            {{ t('pokemon.backToList') }}
           </NuxtLink>
         </div>
 
@@ -1485,7 +1602,7 @@ useJsonLd(() => {
       <section v-if="availableLanguages.length > 0" class="surface section-card language-switcher">
         <div class="section-header">
           <div>
-            <span class="eyebrow">Language</span>
+            <span class="eyebrow">{{ t('pokemon.language') }}</span>
           </div>
         </div>
 
@@ -1497,8 +1614,15 @@ useJsonLd(() => {
             type="button"
             class="pill-link language-switcher__button"
             :class="{ 'pill-link--active': language.key === selectedLanguage }"
-            @click="selectedLanguage = language.key"
+            @click="selectLanguage(language.key)"
           >
+            <img
+              v-if="language.flag"
+              :src="language.flag"
+              alt=""
+              class="language-switcher__flag"
+              aria-hidden="true"
+            >
             {{ language.label }}
           </button>
         </div>
@@ -1509,18 +1633,25 @@ useJsonLd(() => {
             type="button"
             class="language-switcher__nav-btn"
             @click="prevLanguage"
-            aria-label="前の言語"
+            :aria-label="t('common.prevLanguage')"
           >
             ＜
           </button>
           <span class="language-switcher__current">
+            <img
+              v-if="availableLanguages.find(lang => lang.key === selectedLanguage)?.flag"
+              :src="availableLanguages.find(lang => lang.key === selectedLanguage)?.flag"
+              alt=""
+              class="language-switcher__flag"
+              aria-hidden="true"
+            >
             {{ availableLanguages.find(lang => lang.key === selectedLanguage)?.label }}
           </span>
           <button
             type="button"
             class="language-switcher__nav-btn"
             @click="nextLanguage"
-            aria-label="次の言語"
+            :aria-label="t('common.nextLanguage')"
           >
             ＞
           </button>
@@ -1530,7 +1661,17 @@ useJsonLd(() => {
       <section class="hero surface">
         <div class="hero__content">
           <div class="detail-hero__meta-row">
-            <span class="eyebrow">{{ pageData.areaLabel }}</span>
+            <span class="eyebrow">{{ currentRegionLabel }}</span>
+            <div class="detail-hero__actions">
+            <button
+              type="button"
+              class="favorite-button"
+              :class="{ 'favorite-button--active': pokemonIsFavorite }"
+              :aria-label="pokemonIsFavorite ? t('common.removeFavorite') : t('common.addFavorite')"
+              @click="handleFavoriteToggle"
+            >
+              {{ pokemonIsFavorite ? '★' : '☆' }}
+            </button>
             <ShareMenu
               trigger="button"
               tone="secondary"
@@ -1540,12 +1681,13 @@ useJsonLd(() => {
               :text="buildPageSharePayload.text"
               :url="buildPageSharePayload.url"
               :clipboard-text="buildPageSharePayload.clipboardText"
-              :language="tagUiLanguage"
-              :button-label="getTagText('共有', 'Share')"
-              :aria-label="getTagText('このページを共有', 'Share this page')"
+              :language="selectedLanguage"
+              :button-label="t('share.share')"
+              :aria-label="t('pokemon.shareThisPage')"
               @copied="handleShareCopied"
               @error="handleShareError"
             />
+            </div>
           </div>
           <p class="hero__description hero__description--tight">
             {{ currentDexLabel }}
@@ -1561,7 +1703,7 @@ useJsonLd(() => {
           </p>
           <div class="type-list">
             <span v-for="type in pokemon.types" :key="type" class="type-chip" :style="{ backgroundColor: getTypeColor(type) }">
-              {{ type }}
+              {{ getTypeName(type, selectedLanguage) }}
             </span>
           </div>
         </div>
@@ -1601,7 +1743,7 @@ useJsonLd(() => {
               type="button"
               class="form-switcher__nav-btn"
               @click="prevForm"
-              aria-label="前のフォーム"
+              :aria-label="t('common.prevForm')"
             >
               ＜
             </button>
@@ -1612,7 +1754,7 @@ useJsonLd(() => {
               type="button"
               class="form-switcher__nav-btn"
               @click="nextForm"
-              aria-label="次のフォーム"
+              :aria-label="t('common.nextForm')"
             >
               ＞
             </button>
@@ -1622,33 +1764,68 @@ useJsonLd(() => {
 
       <section class="detail-grid">
         <article class="surface info-card">
-          <span class="eyebrow">Height</span>
+          <span class="eyebrow">{{ t('pokemon.height') }}</span>
           <strong class="info-card__value">{{ formatMeters(pokemon.height) }}</strong>
         </article>
         <article class="surface info-card">
-          <span class="eyebrow">Weight</span>
+          <span class="eyebrow">{{ t('pokemon.weight') }}</span>
           <strong class="info-card__value">{{ formatKilograms(pokemon.weight) }}</strong>
         </article>
         <article class="surface info-card">
-          <span class="eyebrow">Classification</span>
+          <span class="eyebrow">{{ t('pokemon.classification') }}</span>
           <strong class="info-card__value info-card__value--small">{{ displayPokemonClassification }}</strong>
         </article>
         <article class="surface info-card">
-          <span class="eyebrow">Forms</span>
-          <strong class="info-card__value info-card__value--small">{{ activeEntry?.displayLabel ?? '通常のみ' }}</strong>
+          <span class="eyebrow">{{ t('pokemon.forms') }}</span>
+          <strong class="info-card__value info-card__value--small">{{ activeEntry?.displayLabel ?? t('pokemon.standardOnly') }}</strong>
         </article>
+      </section>
+
+      <section v-if="displayedEvolutions.length > 0" class="surface section-card">
+        <div class="section-header">
+          <div>
+            <span class="eyebrow">{{ t('pokemon.evolutions') }}</span>
+            <h2 class="section-title">{{ t('pokemon.evolutions') }}</h2>
+          </div>
+        </div>
+        <div class="evolution-list">
+          <NuxtLink
+            v-for="evolution in displayedEvolutions"
+            :key="evolution.key"
+            :to="evolution.to"
+            class="evolution-entry"
+          >
+            <div class="evolution-entry__version">
+              <strong>{{ evolution.versionLabel }}</strong>
+              <span v-if="isGlobalArea">{{ evolution.regionLabel }}</span>
+            </div>
+            <div class="evolution-entry__condition">
+              <span>{{ t('pokemon.evolutionCondition') }}</span>
+              <strong>{{ evolution.condition }}</strong>
+              <span v-if="evolution.form">{{ evolution.form }}</span>
+            </div>
+            <span class="evolution-entry__arrow" aria-hidden="true">→</span>
+            <div class="evolution-entry__pokemon">
+              <img :src="evolution.imagePath" :alt="evolution.name" class="evolution-entry__image">
+              <div>
+                <span>{{ formatPokemonNumber(evolution.dex) }}</span>
+                <strong>{{ evolution.name }}</strong>
+              </div>
+            </div>
+          </NuxtLink>
+        </div>
       </section>
 
       <section v-if="displayedDescriptionGroups.length > 0" class="surface section-card">
         <div class="section-header">
           <div>
-            <span class="eyebrow">Dex Entries</span>
-            <h2 class="section-title">図鑑説明一覧</h2>
+            <span class="eyebrow">{{ t('pokemon.dexEntries') }}</span>
+            <h2 class="section-title">{{ t('pokemon.dexEntries') }}</h2>
           </div>
         </div>
         <div class="global-description-list">
           <article
-            v-for="group in displayedDescriptionGroups"
+            v-for="group in visibleDescriptionGroups"
             :key="group.key"
             class="global-description-group"
           >
@@ -1708,9 +1885,9 @@ useJsonLd(() => {
                       :text="buildDescriptionSharePayload(versionEntry.description).text"
                       :url="buildDescriptionSharePayload(versionEntry.description).url"
                       :clipboard-text="buildDescriptionSharePayload(versionEntry.description).clipboardText"
-                      :language="tagUiLanguage"
-                      :button-label="getTagText('共有', 'Share')"
-                      :aria-label="getTagText(`${versionEntry.label}の図鑑説明を共有`, `Share ${versionEntry.label} dex entry`)"
+                      :language="selectedLanguage"
+                      :button-label="t('share.share')"
+                      :aria-label="t('pokemon.shareDexEntry', { label: versionEntry.label })"
                       @copied="handleShareCopied"
                       @error="handleShareError"
                     />
@@ -1723,7 +1900,7 @@ useJsonLd(() => {
                         :key="`${versionEntry.key}-${regionLink.key}`"
                         :to="regionLink.to"
                         class="regional-number-chip regional-number-chip--link"
-                        :title="`${regionLink.label} ${String(regionLink.dex).padStart(4, '0')}へ移動`"
+                        :title="t('pokemon.goToRegion', { label: regionLink.label, no: String(regionLink.dex).padStart(4, '0') })"
                         @click.stop
                       >
                         <span class="regional-number-chip__label">{{ regionLink.label }}</span>
@@ -1737,13 +1914,18 @@ useJsonLd(() => {
             </div>
           </article>
         </div>
+        <div v-if="hasHiddenDescriptions" class="load-more-row">
+          <button type="button" class="button-primary button-primary--secondary" @click="showAllDescriptions = !showAllDescriptions">
+            {{ showAllDescriptions ? t('pokemon.hideExtraEntries') : t('pokemon.showAllEntries') }}
+          </button>
+        </div>
       </section>
 
       <section v-else-if="pokemon.description" class="surface section-card">
         <div class="section-header">
           <div>
-            <span class="eyebrow">Dex Entry</span>
-            <h2 class="section-title">図鑑説明</h2>
+            <span class="eyebrow">{{ t('pokemon.dexEntry') }}</span>
+            <h2 class="section-title">{{ t('pokemon.dexEntry') }}</h2>
           </div>
           <ShareMenu
             trigger="button"
@@ -1754,9 +1936,9 @@ useJsonLd(() => {
             :text="buildDescriptionSharePayload(descriptionText).text"
             :url="buildDescriptionSharePayload(descriptionText).url"
             :clipboard-text="buildDescriptionSharePayload(descriptionText).clipboardText"
-            :language="tagUiLanguage"
-            :button-label="getTagText('共有', 'Share')"
-            :aria-label="getTagText('この図鑑説明を共有', 'Share this dex entry')"
+            :language="selectedLanguage"
+            :button-label="t('share.share')"
+            :aria-label="t('pokemon.shareDexEntry', { label: t('pokemon.dexEntry') })"
             @copied="handleShareCopied"
             @error="handleShareError"
           />
@@ -1764,12 +1946,39 @@ useJsonLd(() => {
         <p class="detail-description" v-html="descriptionHtml" />
       </section>
 
-      <section v-if="!isGlobalArea && statEntries.length > 0" class="surface section-card">
+      <section v-if="typeMatchupGroups.length > 0" class="surface section-card">
         <div class="section-header">
           <div>
-            <span class="eyebrow">Base Stats</span>
-            <h2 class="section-title">種族値</h2>
+            <span class="eyebrow">{{ t('pokemon.typeMatchups') }}</span>
+            <h2 class="section-title">{{ t('pokemon.typeMatchups') }}</h2>
           </div>
+        </div>
+        <div class="matchup-list">
+          <div v-for="group in typeMatchupGroups" :key="group.multiplier" class="matchup-row">
+            <span class="matchup-row__label">{{ getMatchupGroupLabel(group.multiplier) }}</span>
+            <div class="type-list type-list--compact">
+              <span
+                v-for="type in group.types"
+                :key="`${group.multiplier}-${type}`"
+                class="type-chip"
+                :style="{ backgroundColor: getTypeColor(type) }"
+              >
+                {{ getTypeName(type, selectedLanguage) }}
+              </span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section v-if="statEntries.length > 0" class="surface section-card">
+        <div class="section-header">
+          <div>
+            <span class="eyebrow">{{ t('pokemon.stats') }}</span>
+            <h2 class="section-title">{{ t('pokemon.stats') }}</h2>
+          </div>
+          <p class="section-caption">
+            {{ t('pokemon.statTotal') }} {{ statTotal }}
+          </p>
         </div>
 
         <div class="stats-list">
@@ -1779,7 +1988,11 @@ useJsonLd(() => {
               <strong>{{ entry.value }}</strong>
             </div>
             <div class="stat-row__track">
-              <span class="stat-row__fill" :style="{ width: `${(entry.value / maxStat) * 100}%` }" />
+              <span
+                class="stat-row__fill"
+                :class="getStatFillClass(entry.value)"
+                :style="{ width: `${Math.min((entry.value / maxStat) * 100, 100)}%` }"
+              />
             </div>
           </div>
         </div>
@@ -1788,15 +2001,15 @@ useJsonLd(() => {
       <section class="surface section-card tag-section">
         <div class="section-header tag-section__header">
           <div>
-            <span class="eyebrow">Tags</span>
-            <h2 class="section-title">{{ getTagText('タグ', 'Tags') }}</h2>
+            <span class="eyebrow">{{ t('pokemon.tags') }}</span>
+            <h2 class="section-title">{{ t('pokemon.tags') }}</h2>
           </div>
           <button
             type="button"
             class="button-primary button-primary--secondary tag-section__action"
             @click="openTagSuggestionDialog"
           >
-            {{ getTagText('タグを提案', 'Suggest Tag') }}
+            {{ t('pokemon.suggestTag') }}
           </button>
         </div>
 
@@ -1805,10 +2018,10 @@ useJsonLd(() => {
         </p>
 
         <p v-if="isLoadingTags" class="tag-section__status">
-          {{ getTagText('読み込み中...', 'Loading...') }}
+          {{ t('common.loading') }}...
         </p>
         <p v-else-if="tagsForDisplay.length === 0" class="tag-section__status">
-          {{ getTagText('タグがありません', 'No tags yet') }}
+          {{ t('pokemon.noTags') }}
         </p>
         <div v-else class="tag-chip-list">
           <article
@@ -1821,7 +2034,7 @@ useJsonLd(() => {
               class="tag-vote-button"
               :class="{ 'tag-vote-button--active': tagItem.user_vote === 'good' }"
               :disabled="!tagItem.id || isVoting === tagItem.id"
-              :aria-label="getTagText(`タグ「${tagItem.tag}」にGood投票`, `Vote good for tag ${tagItem.tag}`)"
+              :aria-label="t('pokemon.voteGood', { tag: tagItem.tag })"
               @click="voteTag(tagItem.id, 'good')"
             >
               👍
@@ -1835,7 +2048,7 @@ useJsonLd(() => {
               class="tag-vote-button"
               :class="{ 'tag-vote-button--active tag-vote-button--danger': tagItem.user_vote === 'bad' }"
               :disabled="!tagItem.id || isVoting === tagItem.id"
-              :aria-label="getTagText(`タグ「${tagItem.tag}」にBad投票`, `Vote bad for tag ${tagItem.tag}`)"
+              :aria-label="t('pokemon.voteBad', { tag: tagItem.tag })"
               @click="voteTag(tagItem.id, 'bad')"
             >
               👎
@@ -1855,7 +2068,7 @@ useJsonLd(() => {
         <div class="section-header">
           <div>
             <span class="eyebrow">Debug</span>
-            <h2 class="section-title">取得JSON</h2>
+            <h2 class="section-title">JSON</h2>
           </div>
         </div>
         <pre class="debug-json">{{ debugPayload }}</pre>
@@ -1863,8 +2076,8 @@ useJsonLd(() => {
     </section>
 
     <section v-else class="empty-state surface">
-      <span class="eyebrow">Data Missing</span>
-      <h1 class="section-title">ポケモンデータを表示できません</h1>
+      <span class="eyebrow">{{ t('common.error') }}</span>
+      <h1 class="section-title">{{ t('pokemon.notFound') }}</h1>
       <p class="empty-state__message">
         {{ pageData.message }}
       </p>
@@ -1872,14 +2085,14 @@ useJsonLd(() => {
 
     <transition name="tag-dialog-fade">
       <div v-if="isTagDialogVisible" class="tag-dialog-backdrop" @click.self="closeTagDialog">
-        <div class="tag-dialog surface" role="dialog" aria-modal="true" :aria-label="getTagText('タグを提案', 'Suggest Tag')">
+        <div class="tag-dialog surface" role="dialog" aria-modal="true" :aria-label="t('pokemon.suggestTag')">
           <div class="tag-dialog__header">
             <div>
-              <span class="eyebrow">Suggest Tag</span>
-              <h2 class="section-title tag-dialog__title">{{ getTagText('タグを提案', 'Suggest Tag') }}</h2>
+              <span class="eyebrow">{{ t('pokemon.suggestTag') }}</span>
+              <h2 class="section-title tag-dialog__title">{{ t('pokemon.suggestTag') }}</h2>
               <p class="tag-dialog__subtitle">{{ tagDialogSubtitle }}</p>
             </div>
-            <button type="button" class="icon-button tag-dialog__close" :aria-label="getTagText('閉じる', 'Close')" @click="closeTagDialog">
+            <button type="button" class="icon-button tag-dialog__close" :aria-label="t('common.close')" @click="closeTagDialog">
               <svg viewBox="0 0 24 24" class="icon-button__svg icon-button__svg--close" aria-hidden="true">
                 <path fill="currentColor" d="M18.3 5.71 12 12.01l-6.3-6.3-1.41 1.41 6.3 6.3-6.3 6.29 1.41 1.42 6.3-6.3 6.29 6.3 1.42-1.42-6.3-6.29 6.3-6.3z" />
               </svg>
@@ -1888,9 +2101,9 @@ useJsonLd(() => {
 
           <div class="tag-dialog__body">
             <div>
-              <span class="eyebrow">Existing Tags</span>
+              <span class="eyebrow">{{ t('pokemon.existingTags') }}</span>
               <div v-if="scopedExistingTags.length === 0" class="tag-dialog__empty">
-                {{ getTagText('まだタグがありません', 'No tags yet') }}
+                {{ t('pokemon.noTags') }}
               </div>
               <div v-else class="tag-dialog__existing-list">
                 <span v-for="tagItem in scopedExistingTags" :key="`${getTagScopeKey(tagItem)}-dialog`" class="pill-link tag-dialog__existing-chip">
@@ -1901,14 +2114,14 @@ useJsonLd(() => {
             </div>
 
             <div class="tag-dialog__form">
-              <label class="tag-dialog__label" for="tag-suggestion-input">{{ getTagText('新しいタグ', 'New Tag') }}</label>
+              <label class="tag-dialog__label" for="tag-suggestion-input">{{ t('pokemon.newTagLabel') }}</label>
               <input
                 id="tag-suggestion-input"
                 v-model="newTagInput"
                 type="text"
                 maxlength="50"
                 class="tag-dialog__input"
-                :placeholder="getTagText('タグを入力...', 'Enter tag...')"
+                :placeholder="t('pokemon.enterTag')"
                 @input="validateTagInput"
                 @keydown.enter.prevent="submitTagSuggestion"
               >
@@ -1921,10 +2134,10 @@ useJsonLd(() => {
 
           <div class="tag-dialog__actions">
             <button type="button" class="button-primary button-primary--secondary" @click="closeTagDialog">
-              {{ getTagText('キャンセル', 'Cancel') }}
+              {{ t('common.cancel') }}
             </button>
             <button type="button" class="button-primary" :disabled="!canSubmitTag" @click="submitTagSuggestion">
-              {{ isSubmittingTag ? getTagText('送信中...', 'Submitting...') : getTagText('提案', 'Suggest') }}
+              {{ isSubmittingTag ? t('common.submitting') : t('common.submit') }}
             </button>
           </div>
         </div>
@@ -1994,6 +2207,12 @@ useJsonLd(() => {
   flex-wrap: wrap;
 }
 
+.detail-hero__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
 .detail-share-button {
   gap: 0.45rem;
   padding: 0 14px;
@@ -2025,6 +2244,15 @@ useJsonLd(() => {
   text-align: center;
 }
 
+.language-switcher__flag {
+  width: 22px;
+  height: auto;
+  aspect-ratio: 4 / 3;
+  border-radius: 3px;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18);
+  flex-shrink: 0;
+}
+
 .form-switcher__link {
   flex-direction: column;
   align-items: flex-start;
@@ -2040,6 +2268,67 @@ useJsonLd(() => {
   line-height: 1.5;
 }
 
+.evolution-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.evolution-entry {
+  display: grid;
+  grid-template-columns: minmax(150px, 0.8fr) minmax(150px, 1fr) auto minmax(180px, 1fr);
+  align-items: center;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 1rem;
+  background: var(--surface-soft);
+  color: inherit;
+  text-decoration: none;
+}
+
+.evolution-entry:hover {
+  border-color: rgba(59, 130, 246, 0.45);
+}
+
+.evolution-entry__version,
+.evolution-entry__condition,
+.evolution-entry__pokemon,
+.evolution-entry__pokemon > div {
+  display: flex;
+}
+
+.evolution-entry__version,
+.evolution-entry__condition,
+.evolution-entry__pokemon > div {
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.evolution-entry__version span,
+.evolution-entry__condition span,
+.evolution-entry__pokemon span {
+  color: var(--text-soft);
+  font-size: 0.82rem;
+}
+
+.evolution-entry__arrow {
+  color: var(--text-soft);
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.evolution-entry__pokemon {
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.evolution-entry__image {
+  width: 64px;
+  height: 64px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
 .global-description-list {
   display: grid;
   gap: 1rem;
@@ -2048,7 +2337,7 @@ useJsonLd(() => {
 .global-description-group {
   border: 1px solid rgba(148, 163, 184, 0.25);
   border-radius: 1rem;
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--surface-soft);
 }
 
 .global-description-group__summary {
@@ -2076,7 +2365,7 @@ useJsonLd(() => {
   gap: 0.45rem;
   padding: 0.35rem 0.7rem;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.06);
+  background: var(--tint);
 }
 
 .global-description-group__icon,
@@ -2108,7 +2397,7 @@ useJsonLd(() => {
   gap: 0.6rem;
   padding: 0.9rem 1rem;
   border-radius: 0.85rem;
-  background: rgba(15, 23, 42, 0.04);
+  background: var(--tint-soft);
 }
 
 .global-description-entry__header {
@@ -2147,7 +2436,7 @@ useJsonLd(() => {
   gap: 0.4rem;
   padding: 0.32rem 0.7rem;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.06);
+  background: var(--tint);
   font-size: 0.82rem;
   line-height: 1.2;
 }
@@ -2171,6 +2460,20 @@ useJsonLd(() => {
 }
 
 @media (max-width: 720px) {
+  .evolution-entry {
+    grid-template-columns: 1fr auto 1fr;
+    gap: 0.75rem;
+  }
+
+  .evolution-entry__version {
+    grid-column: 1 / -1;
+  }
+
+  .evolution-entry__image {
+    width: 52px;
+    height: 52px;
+  }
+
   .detail-nav {
     grid-template-columns: 1fr auto 1fr;
     gap: 0.5rem;
@@ -2220,17 +2523,17 @@ useJsonLd(() => {
     height: 44px;
     border: 1px solid rgba(148, 163, 184, 0.4);
     border-radius: 0.5rem;
-    background: rgba(255, 255, 255, 0.8);
+    background: var(--surface);
     font-size: 1.2rem;
     font-weight: 700;
-    color: #0f172a;
+    color: var(--text);
     cursor: pointer;
     flex-shrink: 0;
   }
 
   .language-switcher__nav-btn:active,
   .form-switcher__nav-btn:active {
-    background: rgba(15, 23, 42, 0.1);
+    background: var(--tint-active);
   }
 
   .language-switcher__current,
@@ -2240,7 +2543,7 @@ useJsonLd(() => {
     font-size: 1rem;
     font-weight: 600;
     padding: 0.5rem;
-    background: rgba(15, 23, 42, 0.04);
+    background: var(--tint-soft);
     border-radius: 0.5rem;
   }
 }
@@ -2291,7 +2594,7 @@ useJsonLd(() => {
 .tag-chip__area {
   padding: 0.16rem 0.45rem;
   border-radius: 999px;
-  background: rgba(15, 23, 42, 0.08);
+  background: var(--tint-strong);
   color: var(--text-soft);
   font-size: 0.78rem;
   text-transform: lowercase;
@@ -2308,9 +2611,9 @@ useJsonLd(() => {
   justify-content: center;
   width: 30px;
   height: 30px;
-  border: 1px solid rgba(15, 23, 42, 0.08);
+  border: 1px solid var(--border);
   border-radius: 999px;
-  background: white;
+  background: var(--surface);
   transition: transform 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
 }
 
@@ -2380,7 +2683,7 @@ useJsonLd(() => {
 
 .tag-dialog__close {
   border: 1px solid var(--border);
-  background: white;
+  background: var(--surface);
   color: var(--text);
 }
 
@@ -2417,7 +2720,7 @@ useJsonLd(() => {
   padding: 0.8rem 0.95rem;
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: white;
+  background: var(--input-bg);
   color: var(--text);
 }
 

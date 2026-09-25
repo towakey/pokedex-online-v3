@@ -2,7 +2,11 @@ node_modules/
 .nuxt/
 .output/
 dist/
+.cache/
 /pokedex/
 generated-data/
 /public/images/pokemon/
 /public/images/pokedex-version/
+/public/images/og/
+# Twitter Bot runtime data (DB/logs/lock)
+twitter-bot/data/

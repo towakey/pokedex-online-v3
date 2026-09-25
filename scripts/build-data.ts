@@ -1,5 +1,6 @@
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { basename, resolve } from 'node:path'
+import { basename, dirname, relative, resolve } from 'node:path'
 
 type JsonPrimitive = null | boolean | number | string
 type JsonValue = JsonPrimitive | JsonValue[] | JsonRecord
@@ -30,6 +31,20 @@ interface PokemonRecord {
   }>
   stats?: Partial<Record<StatKey, number>>
   forms?: Record<string, string>
+  evolutions?: EvolutionRecord[]
+}
+
+interface EvolutionRecord {
+  version: string
+  versionLabel: string
+  regionSlug: string
+  regionLabel: string
+  pokemonId: string
+  dex: number
+  condition: string
+  form?: string
+  name: string
+  names?: Record<string, string>
 }
 
 interface IndexRecord {
@@ -900,7 +915,8 @@ const mergePokemonRecord = (current: PokemonRecord | undefined, incoming: Pokemo
     description: (current.description?.length ?? 0) >= (incoming.description?.length ?? 0) ? current.description : incoming.description,
     globalDescriptions: current.globalDescriptions ?? incoming.globalDescriptions,
     stats: current.stats || incoming.stats ? { ...(current.stats ?? {}), ...(incoming.stats ?? {}) } : undefined,
-    forms: current.forms || incoming.forms ? { ...(current.forms ?? {}), ...(incoming.forms ?? {}) } : undefined
+    forms: current.forms || incoming.forms ? { ...(current.forms ?? {}), ...(incoming.forms ?? {}) } : undefined,
+    evolutions: current.evolutions || incoming.evolutions ? [...(current.evolutions ?? []), ...(incoming.evolutions ?? [])] : undefined
   }
 }
 
@@ -908,8 +924,37 @@ const createRegionLabel = (slug: string): string => {
   return REGION_LABELS[slug] ?? `${slug.charAt(0).toUpperCase()}${slug.slice(1)}`
 }
 
+interface LastmodEntry {
+  hash: string
+  lastmod: string
+}
+
+const lastmodManifestPath = () => resolve(outputDir, 'lastmod.json')
+
+const loadPreviousLastmodManifest = (): Record<string, LastmodEntry> => {
+  try {
+    const parsed = JSON.parse(readFileSync(lastmodManifestPath(), 'utf-8')) as Record<string, LastmodEntry>
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  }
+  catch {
+    return {}
+  }
+}
+
+const buildDate = new Date().toISOString().slice(0, 10)
+let previousLastmodManifest: Record<string, LastmodEntry> = {}
+const nextLastmodManifest: Record<string, LastmodEntry> = {}
+
 const writeJson = (targetPath: string, payload: JsonValue) => {
-  writeFileSync(targetPath, JSON.stringify(payload, null, 2), 'utf-8')
+  const content = JSON.stringify(payload, null, 2)
+  const manifestKey = relative(outputDir, targetPath).replace(/\\/g, '/')
+  const hash = createHash('sha1').update(content).digest('hex')
+  const previousEntry = previousLastmodManifest[manifestKey]
+  nextLastmodManifest[manifestKey] = {
+    hash,
+    lastmod: previousEntry && previousEntry.hash === hash ? previousEntry.lastmod : buildDate
+  }
+  writeFileSync(targetPath, content, 'utf-8')
 }
 
 if (!existsSync(sourceDir)) {
@@ -927,6 +972,8 @@ if (!existsSync(sourceConfigPath)) {
 if (!existsSync(sourceDescriptionPath)) {
   throw new Error('The pokedex description_map JSON was not found in the expected location.')
 }
+
+previousLastmodManifest = loadPreviousLastmodManifest()
 
 rmSync(outputDir, { recursive: true, force: true })
 mkdirSync(pokemonOutputDir, { recursive: true })
@@ -1034,6 +1081,105 @@ for (const [slug, regionConfig] of configuredRegionEntries) {
       .sort((left, right) => left.dex - right.dex || left.national_dex - right.national_dex || left.pokemon_id.localeCompare(right.pokemon_id))
       .map((entry) => [`${entry.dex}:${entry.pokemon_id}`, entry] as const)
   ).values()]
+  const evolutionFilePath = resolve(dirname(versionFilePath), 'evolve.json')
+
+  if (existsSync(evolutionFilePath)) {
+    const evolutionSource = readJsonFile<JsonRecord>(evolutionFilePath)
+    const evolutionRegionMap = toRecordMap(evolutionSource.evolve)
+    const fallbackEvolutionRegion = Object.values(evolutionRegionMap)[regionConfig.pokedex_index]
+    const evolutionRegion = evolutionRegionMap[slug] ?? fallbackEvolutionRegion
+    const evolutionSourceEntries = evolutionRegion?.['進化先']
+    const evolutionEntries = Array.isArray(evolutionSourceEntries)
+      ? Object.fromEntries(
+          evolutionSourceEntries
+            .map((entry, index) => [String(index), entry] as const)
+            .filter((entry): entry is readonly [string, JsonRecord] => isRecord(entry[1]))
+        )
+      : toRecordMap(evolutionSourceEntries)
+    const versionLabels = [...versionDisplayMap.values()]
+      .filter((entry) => normalizeVersionNameKey(entry.versionGroup ?? '') === normalizeVersionNameKey(regionConfig.version_key))
+      .sort((left, right) => left.order - right.order)
+      .map((entry) => entry.label)
+    const versionLabel = uniqueStrings(versionLabels).join('・') || normalizeVersionLabel(regionConfig.version_key)
+    const regionLabel = regionConfig.label_jpn || regionConfig.display_jpn || createRegionLabel(slug)
+    const findRegionalForms = (dex: number) => {
+      const regionalEntry = Object.entries(regionalEntriesMap).find(([localDex]) => parsePokemonId(localDex) === dex)?.[1]
+      return Object.entries(toRecordMap(regionalEntry)).map(([pokemonId, pokemonEntry]) => ({
+        pokemonId,
+        form: toStringValue(pokemonEntry.form) ?? ''
+      }))
+    }
+    const normalizeForm = (value: string) => value.normalize('NFKC').trim().toLocaleLowerCase()
+
+    for (const [localDex, evolutionValue] of Object.entries(evolutionEntries)) {
+      const sourceDex = parsePokemonId(localDex)
+      if (!sourceDex || !isRecord(evolutionValue)) {
+        continue
+      }
+
+      const allSourceForms = findRegionalForms(sourceDex)
+      for (const [form, transitionsValue] of Object.entries(evolutionValue)) {
+        if (form === 'globalNo' || !Array.isArray(transitionsValue)) {
+          continue
+        }
+
+        const normalizedForm = normalizeForm(form)
+        const matchedSourceForms = normalizedForm
+          ? allSourceForms.filter((entry) => normalizeForm(entry.form) === normalizedForm)
+          : allSourceForms
+        const sourceForms = matchedSourceForms.length > 0 ? matchedSourceForms : allSourceForms.slice(0, 1)
+
+        for (const transitionValue of transitionsValue) {
+          if (!isRecord(transitionValue)) {
+            continue
+          }
+
+          for (const [targetLocalDex, conditionValue] of Object.entries(transitionValue)) {
+            const targetDex = parsePokemonId(targetLocalDex)
+            const condition = toStringValue(conditionValue)
+            if (!targetDex || !condition) {
+              continue
+            }
+
+            const allTargetForms = findRegionalForms(targetDex)
+            const matchedTargetForms = normalizedForm
+              ? allTargetForms.filter((entry) => normalizeForm(entry.form) === normalizedForm)
+              : allTargetForms
+            const targetForm = (matchedTargetForms.length > 0 ? matchedTargetForms : allTargetForms)[0]
+            const targetPokemon = targetForm ? pokemonMap.get(targetForm.pokemonId) : undefined
+            if (!targetForm || !targetPokemon) {
+              continue
+            }
+
+            for (const sourceForm of sourceForms) {
+              const sourcePokemon = pokemonMap.get(sourceForm.pokemonId)
+              if (!sourcePokemon) {
+                continue
+              }
+
+              const evolution: EvolutionRecord = {
+                version: regionConfig.version_key,
+                versionLabel,
+                regionSlug: slug,
+                regionLabel,
+                pokemonId: targetForm.pokemonId,
+                dex: targetDex,
+                condition,
+                form: form || undefined,
+                name: targetPokemon.name,
+                names: targetPokemon.names
+              }
+              const evolutionKey = `${evolution.regionSlug}:${evolution.pokemonId}:${evolution.condition}:${evolution.form ?? ''}`
+              const currentEvolutions = sourcePokemon.evolutions ?? []
+              if (!currentEvolutions.some((entry) => `${entry.regionSlug}:${entry.pokemonId}:${entry.condition}:${entry.form ?? ''}` === evolutionKey)) {
+                sourcePokemon.evolutions = [...currentEvolutions, evolution]
+              }
+            }
+          }
+        }
+      }
+    }
+  }
 
   regionMap.set(slug, deduped)
 }
@@ -1092,5 +1238,7 @@ for (const [slug, entries] of regionMap.entries()) {
 writeJson(resolve(outputDir, 'index.json'), indexRecords as unknown as JsonValue)
 writeJson(resolve(outputDir, 'search-index.json'), searchIndexRecords as unknown as JsonValue)
 writeJson(resolve(outputDir, 'regions.json'), regionMeta as unknown as JsonValue)
+
+writeFileSync(lastmodManifestPath(), JSON.stringify(nextLastmodManifest, null, 2), 'utf-8')
 
 console.log(`Built ${pokemonRecords.length} Pokémon files and ${regionMeta.length} regional datasets.`)

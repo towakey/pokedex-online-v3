@@ -1,23 +1,31 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useSiteAppConfig } from '~/composables/useSiteAppConfig'
+import { useTranslation } from '~/composables/useTranslation'
 import { useTypeColor } from '~/composables/useTypeColor'
-import type { PokemonIndexItem } from '~/composables/usePokedex'
+import { useTypeName } from '~/composables/useTypeName'
+import type { SearchIndexItem } from '~/composables/usePokedex'
 
 const props = withDefaults(defineProps<{
-  pokemon: PokemonIndexItem
+  pokemon: SearchIndexItem
   subtitle?: string
   to?: string
+  layout?: 'grid' | 'list'
 }>(), {
   subtitle: undefined,
-  to: undefined
+  to: undefined,
+  layout: 'grid'
 })
 
 const appConfig = useSiteAppConfig()
 const { buildPokemonDetailPath, formatPokemonNumber, getPokemonImagePath } = usePokedex()
 const { getTypeColor } = useTypeColor()
+const { getTypeName } = useTypeName()
+const { language: preferredLanguage, getLocalizedText, t } = useTranslation()
 const pokemonNumber = computed(() => formatPokemonNumber(props.pokemon.dex).replace(/^#/, ''))
-const cardSubtitle = computed(() => props.subtitle ?? `全国No. ${pokemonNumber.value}`)
+const displayName = computed(() => getLocalizedText(props.pokemon.names, preferredLanguage.value, props.pokemon.name) ?? props.pokemon.name)
+const displayClassification = computed(() => getLocalizedText(props.pokemon.classifications, preferredLanguage.value, props.pokemon.classification) ?? t('common.unknown'))
+const cardSubtitle = computed(() => props.subtitle ?? t('pokedex.nationalNo', { number: pokemonNumber.value }))
 const cardLink = computed(() => props.to ?? buildPokemonDetailPath(appConfig.site.defaultArea, props.pokemon.dex, props.pokemon.id))
 const primaryImageSrc = computed(() => getPokemonImagePath(props.pokemon.id))
 const fallbackImageSrc = computed(() => getPokemonImagePath(props.pokemon.dex))
@@ -40,12 +48,12 @@ const handleImageError = () => {
 </script>
 
 <template>
-  <NuxtLink :to="cardLink" class="pokemon-card">
+  <NuxtLink :to="cardLink" class="pokemon-card" :class="{ 'pokemon-card--list': layout === 'list' }">
     <div class="pokemon-card__media">
       <img
         v-if="imageVisible"
         :src="imageSrc"
-        :alt="pokemon.name"
+        :alt="displayName"
         class="pokemon-card__image"
         @error="handleImageError"
       >
@@ -59,15 +67,19 @@ const handleImageError = () => {
         <span class="pokemon-card__subtitle">
           {{ cardSubtitle }}
         </span>
-        <span class="pokemon-card__arrow">→</span>
+        <span class="pokemon-card__badge" aria-hidden="true">
+          <svg viewBox="0 0 24 24" class="pokemon-card__pokeball">
+            <path fill="currentColor" d="M12 2a10 10 0 1 0 10 10A10 10 0 0 0 12 2zm0 2a8 8 0 0 1 7.93 7h-4.05a4 4 0 0 0-7.76 0H4.07A8 8 0 0 1 12 4zm0 16a8 8 0 0 1-7.93-7h4.05a4 4 0 0 0 7.76 0h4.05A8 8 0 0 1 12 20zm0-6a2 2 0 1 1 2-2 2 2 0 0 1-2 2z" />
+          </svg>
+        </span>
       </div>
 
       <div class="pokemon-card__body">
         <h3 class="pokemon-card__title">
-          {{ pokemon.name }}
+          {{ displayName }}
         </h3>
         <p class="pokemon-card__classification">
-          {{ pokemon.classification ?? '不明' }}
+          {{ displayClassification }}
         </p>
       </div>
 
@@ -78,7 +90,7 @@ const handleImageError = () => {
           class="type-chip"
           :style="{ backgroundColor: getTypeColor(type) }"
         >
-          {{ type }}
+          {{ getTypeName(type, preferredLanguage) }}
         </span>
       </div>
     </div>

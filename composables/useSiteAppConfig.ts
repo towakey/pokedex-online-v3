@@ -15,6 +15,8 @@ interface SiteAppConfig {
     pokedex: string
     search: string
     tagSearch: string
+    favorites: string
+    contribute: string
   }
 }
 

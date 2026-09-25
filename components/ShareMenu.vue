@@ -1,10 +1,12 @@
 <script setup lang="ts">
+import { useTranslation } from '~/composables/useTranslation'
+
 interface ShareMenuProps {
   title: string
   text: string
   url?: string
   clipboardText?: string
-  language?: 'jpn' | 'eng'
+  language?: string
   trigger?: 'icon' | 'button'
   tone?: 'light' | 'secondary'
   align?: 'left' | 'right'
@@ -25,8 +27,8 @@ const props = withDefaults(defineProps<ShareMenuProps>(), {
   trigger: 'button',
   tone: 'secondary',
   align: 'right',
-  buttonLabel: '共有',
-  ariaLabel: '共有する',
+  buttonLabel: undefined,
+  ariaLabel: undefined,
   buttonClass: ''
 })
 
@@ -35,18 +37,12 @@ const emit = defineEmits<{
   error: [error: unknown]
 }>()
 
+const { getShareMenuLabels } = useTranslation()
 const menuRef = ref<HTMLDetailsElement | null>(null)
-const isEnglish = computed(() => props.language === 'eng')
-const labels = computed(() => ({
-  system: isEnglish.value ? 'System Share' : 'システム共有',
-  twitter: 'X / Twitter',
-  bluesky: 'Bluesky',
-  mastodon: 'Mastodon',
-  line: 'LINE',
-  copy: isEnglish.value ? 'Copy' : 'コピー',
-  mastodonPrompt: isEnglish.value ? 'Enter your Mastodon instance URL' : 'マストドンのインスタンスURLを入力してください'
-}))
-const canNativeShare = computed(() => import.meta.client && typeof navigator !== 'undefined' && typeof navigator.share === 'function')
+const labels = computed(() => getShareMenuLabels(props.language))
+const displayButtonLabel = computed(() => props.buttonLabel || labels.value.share)
+const displayAriaLabel = computed(() => props.ariaLabel || labels.value.share)
+const canNativeShare = ref(false)
 const shareOptions = computed<ShareOption[]>(() => {
   const options: ShareOption[] = []
 
@@ -218,6 +214,7 @@ const handleShare = async (network: ShareOption['key']) => {
 }
 
 onMounted(() => {
+  canNativeShare.value = typeof navigator !== 'undefined' && typeof navigator.share === 'function'
   document.addEventListener('click', handleDocumentClick)
 })
 
@@ -228,11 +225,11 @@ onBeforeUnmount(() => {
 
 <template>
   <details ref="menuRef" class="share-menu" :class="[`share-menu--${align}`, `share-menu--${trigger}`]">
-    <summary :class="triggerClasses" :aria-label="ariaLabel">
+    <summary :class="triggerClasses" :aria-label="displayAriaLabel">
       <svg viewBox="0 0 24 24" class="share-menu__trigger-icon" aria-hidden="true">
         <path fill="currentColor" d="M14 3h7v7h-2V6.41l-9.29 9.3-1.42-1.42 9.3-9.29H14V3zm5 16H5V5h7V3H5c-1.11 0-2 .89-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7z" />
       </svg>
-      <span v-if="trigger === 'button'">{{ buttonLabel }}</span>
+      <span v-if="trigger === 'button'">{{ displayButtonLabel }}</span>
     </summary>
 
     <div class="share-menu__panel">

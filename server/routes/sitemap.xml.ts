@@ -1,4 +1,4 @@
-import { buildCanonicalRoutes } from '../utils/siteRoutes'
+import { buildCanonicalRouteEntries } from '../utils/siteRoutes'
 
 const escapeXml = (value: string) => value
   .replace(/&/g, '&amp;')
@@ -12,12 +12,12 @@ export default defineEventHandler((event) => {
   const rawBase = String(config.public.appBaseURL ?? '').trim()
   const basePath = !rawBase || rawBase === '/' ? '' : (rawBase.startsWith('/') ? rawBase : `/${rawBase}`).replace(/\/+$/, '')
   const siteUrl = `${origin}${basePath}`
-  const lastmod = new Date().toISOString().slice(0, 10)
 
-  const urls = buildCanonicalRoutes()
-    .map((route) => {
+  const urls = buildCanonicalRouteEntries()
+    .map(({ route, lastmod }) => {
       const loc = escapeXml(`${siteUrl}${route}`)
-      return `  <url><loc>${loc}</loc><lastmod>${lastmod}</lastmod></url>`
+      const lastmodTag = lastmod ? `<lastmod>${lastmod}</lastmod>` : ''
+      return `  <url><loc>${loc}</loc>${lastmodTag}</url>`
     })
     .join('\n')
 

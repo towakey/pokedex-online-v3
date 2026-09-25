@@ -3,7 +3,8 @@ export default defineAppConfig({
     name: 'Pokédex-Online',
     description: 'ポケモン図鑑',
     subtitle: '',
-    defaultArea: 'global'
+    defaultArea: 'global',
+    ogImage: '/images/og/default.png'
   },
   pokedex: {
     versionIconBasePath: 'images/pokedex-version',
@@ -44,6 +45,8 @@ export default defineAppConfig({
     gallery: '/gallery',
     pokedex: '/pokedex',
     search: '/search',
-    tagSearch: '/search/tag'
+    tagSearch: '/search/tag',
+    favorites: '/favorites',
+    contribute: '/contribute'
   }
 })

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useSiteAppConfig } from '~/composables/useSiteAppConfig'
+import { useTranslation } from '~/composables/useTranslation'
 import type { RegionMeta } from '~/composables/usePokedex'
 
 interface PokedexTopPageData {
@@ -10,6 +11,7 @@ interface PokedexTopPageData {
 }
 
 const appConfig = useSiteAppConfig()
+const { t, getRegionLabel, language } = useTranslation()
 
 const createDefaultPageData = (): PokedexTopPageData => ({
   ready: false,
@@ -20,8 +22,8 @@ const createDefaultPageData = (): PokedexTopPageData => ({
 const { loadRegions } = usePokedex()
 const defaultAreaPath = computed(() => `${appConfig.navigation.pokedex}/${appConfig.site.defaultArea}`)
 const breadcrumbItems = computed(() => [
-  { label: 'ホーム', to: appConfig.navigation.home },
-  { label: 'ポケモン図鑑' }
+  { label: t('common.home'), to: appConfig.navigation.home },
+  { label: t('pokedex.title') }
 ])
 
 const { data } = await useAsyncData<PokedexTopPageData>('pokedex-top-page', async () => {
@@ -37,7 +39,7 @@ const { data } = await useAsyncData<PokedexTopPageData>('pokedex-top-page', asyn
   catch {
     return {
       ...createDefaultPageData(),
-      message: '図鑑トップの表示に必要なデータを取得できませんでした。'
+      message: t('pokedex.notFound')
     }
   }
 })
@@ -45,8 +47,8 @@ const { data } = await useAsyncData<PokedexTopPageData>('pokedex-top-page', asyn
 const pageData = computed<PokedexTopPageData>(() => data.value ?? createDefaultPageData())
 
 useSiteSeo({
-  title: 'ポケモン図鑑',
-  description: '全国図鑑・カントーからパルデアまで、各地方のポケモン図鑑を選んでポケモンを探せます。'
+  title: () => t('pokedex.title'),
+  description: () => t('pokedex.topDescription')
 })
 </script>
 
@@ -56,16 +58,16 @@ useSiteSeo({
 
     <section class="hero surface hero--compact">
       <div class="hero__content">
-        <span class="eyebrow">Pokedex Top</span>
+        <span class="eyebrow">{{ t('pokedex.dexTop') }}</span>
         <h1 class="hero__title hero__title--detail">
-          ポケモン図鑑
+          {{ t('pokedex.title') }}
         </h1>
         <p class="hero__description">
-          {{ appConfig.site.description }}のトップページです。
+          {{ t('pokedex.topPageDescription') }}
         </p>
         <div class="pill-row">
           <NuxtLink :to="defaultAreaPath" class="button-primary">
-            <span>全国図鑑</span>
+            <span>{{ t('pokedex.openNational') }}</span>
           </NuxtLink>
         </div>
       </div>
@@ -74,8 +76,8 @@ useSiteSeo({
     <section v-if="pageData.regions.length > 0" class="surface section-card">
       <div class="section-header">
         <div>
-          <span class="eyebrow">Region Dex</span>
-          <h2 class="section-title">地域一覧</h2>
+          <span class="eyebrow">{{ t('pokedex.regionList') }}</span>
+          <h2 class="section-title">{{ t('pokedex.localList') }}</h2>
         </div>
       </div>
 
@@ -95,19 +97,19 @@ useSiteSeo({
               v-for="icon in appConfig.pokedex.regionIcons[region.slug]"
               :key="icon"
               :src="`/${appConfig.pokedex.versionIconBasePath}/${icon}`"
-              :alt="region.label"
+              :alt="getRegionLabel(region.slug)"
               class="region-icon"
             />
           </span>
-          <span>{{ region.label }}</span>
+          <span>{{ getRegionLabel(region.slug) }}</span>
           <strong>{{ region.count }}</strong>
         </NuxtLink>
       </div>
     </section>
 
     <section v-else class="empty-state surface">
-      <span class="eyebrow">Data Missing</span>
-      <h2 class="section-title">図鑑トップを表示できません</h2>
+      <span class="eyebrow">{{ t('common.error') }}</span>
+      <h2 class="section-title">{{ t('pokedex.topEmpty') }}</h2>
       <p class="empty-state__message">
         {{ pageData.message }}
       </p>

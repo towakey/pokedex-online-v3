@@ -1,0 +1,22 @@
+{
+  "name": "Pokédex-Online",
+  "short_name": "Pokédex",
+  "description": "ポケモン図鑑",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f2f2f2",
+  "theme_color": "#1976d2",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}

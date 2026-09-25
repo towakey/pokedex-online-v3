@@ -49,12 +49,13 @@ export const useAbsoluteUrl = () => {
 
 export function useSiteSeo(options: SiteSeoOptions) {
   const route = useRoute()
-  const appConfig = useAppConfig() as { site?: { name?: string } }
+  const appConfig = useAppConfig() as { site?: { name?: string; ogImage?: string } }
   const origin = useSiteOrigin()
   const toAbsoluteUrl = useAbsoluteUrl()
 
   const canonicalUrl = computed(() => origin ? toAbsoluteUrl(route.path, { withBasePath: true }) : undefined)
-  const imageUrl = computed(() => toAbsoluteUrl(toValue(options.image)))
+  const defaultOgImage = computed(() => toAbsoluteUrl(appConfig.site?.ogImage))
+  const imageUrl = computed(() => toAbsoluteUrl(toValue(options.image)) ?? defaultOgImage.value)
 
   useSeoMeta({
     title: () => toValue(options.title),

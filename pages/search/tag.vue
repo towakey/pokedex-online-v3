@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useSiteAppConfig } from '~/composables/useSiteAppConfig'
+import { useTranslation } from '~/composables/useTranslation'
 import type { RegionEntry, RegionMeta, SearchIndexItem } from '~/composables/usePokedex'
+
+const { t } = useTranslation()
 
 interface TagCatalogItem {
   tag: string
@@ -101,8 +104,8 @@ const resolveTagApiEndpoint = (): string => {
 
 const tagApiEndpoint = computed(() => resolveTagApiEndpoint())
 const breadcrumbItems = computed(() => [
-  { label: 'ホーム', to: appConfig.navigation.home },
-  { label: 'タグ検索' }
+  { label: t('common.home'), to: appConfig.navigation.home },
+  { label: t('common.tagSearch') }
 ])
 const isDebug = computed(() => route.query.debug !== undefined)
 const isInitialLoading = computed(() => isLoadingCatalog.value || isLoadingReference.value)

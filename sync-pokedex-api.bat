@@ -13,7 +13,7 @@ if not exist "%~dp0.output\public" (
   exit /b 1
 )
 
-robocopy "%SOURCE_DIR%" "%TARGET_DIR%" /E /R:0 /W:0 /XD ".git"
+robocopy "%SOURCE_DIR%" "%TARGET_DIR%" /E /R:0 /W:0 /XD ".git" "editor"
 set "ROBOCOPY_EXIT=%ERRORLEVEL%"
 if %ROBOCOPY_EXIT% GEQ 8 (
   exit /b %ROBOCOPY_EXIT%

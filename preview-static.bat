@@ -1,11 +1,35 @@
 @echo off
-setlocal
+setlocal EnableDelayedExpansion
 
 set "SERVE_ONLY=0"
+set "SAMPLE_COUNT="
+set "CUSTOM_ROUTES="
+
+:PARSE_ARGS
+if "%~1"=="" goto ARGS_DONE
 if /I "%~1"=="--serve-only" (
   set "SERVE_ONLY=1"
   shift
+  goto PARSE_ARGS
 )
+if /I "%~1"=="--sample" (
+  set "SAMPLE_COUNT=%~2"
+  if "!SAMPLE_COUNT!"=="" set "SAMPLE_COUNT=3"
+  shift
+  shift
+  goto PARSE_ARGS
+)
+if /I "%~1"=="--routes" (
+  set "CUSTOM_ROUTES=%~2"
+  shift
+  shift
+  goto PARSE_ARGS
+)
+set "PORT=%~1"
+shift
+goto PARSE_ARGS
+
+:ARGS_DONE
 
 pushd "%~dp0"
 
@@ -20,6 +44,15 @@ if not "%SERVE_ONLY%"=="1" (
   if errorlevel 1 (
     popd
     exit /b 1
+  )
+
+  if not "%SAMPLE_COUNT%"=="" (
+    echo [Quick Preview] Sample prerendering enabled: %SAMPLE_COUNT% per region.
+    set "NUXT_PRERENDER_SAMPLE=%SAMPLE_COUNT%"
+  )
+  if not "%CUSTOM_ROUTES%"=="" (
+    echo [Quick Preview] Custom prerender routes: %CUSTOM_ROUTES%
+    set "NUXT_PRERENDER_ROUTES=%CUSTOM_ROUTES%"
   )
 
   echo Running generate...

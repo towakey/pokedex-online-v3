@@ -1,3 +1,5 @@
+import { useTranslation } from './useTranslation'
+
 type LocalizedTextMap = Record<string, string>
 
 export interface PokemonIndexItem {
@@ -6,6 +8,7 @@ export interface PokemonIndexItem {
   name: string
   types: string[]
   classification?: string
+  classifications?: LocalizedTextMap
 }
 
 export interface SearchIndexItem extends PokemonIndexItem {
@@ -32,6 +35,18 @@ export interface PokemonDetail extends SearchIndexItem {
   stats?: Partial<Record<'hp' | 'attack' | 'defense' | 'special_attack' | 'special_defense' | 'speed', number>>
   forms?: LocalizedTextMap
   classifications?: LocalizedTextMap
+  evolutions?: Array<{
+    version: string
+    versionLabel: string
+    regionSlug: string
+    regionLabel: string
+    pokemonId: string
+    dex: number
+    condition: string
+    form?: string
+    name: string
+    names?: LocalizedTextMap
+  }>
 }
 
 export interface RegionEntry {
@@ -48,24 +63,6 @@ export interface RegionMeta {
 
 const GLOBAL_REGION_SLUG = 'global'
 const LEGACY_GLOBAL_REGION_SLUG = 'national'
-const REGION_LABEL_FALLBACKS: Record<string, string> = {
-  global: '全国図鑑',
-  kanto: 'カントー',
-  johto: 'ジョウト',
-  hoenn: 'ホウエン',
-  sinnoh: 'シンオウ',
-  sinnoh_bdsp: 'シンオウ図鑑 (BDSP)',
-  unova: 'イッシュ',
-  kalos: 'カロス',
-  alola: 'アローラ',
-  galar: 'ガラル',
-  hisui: 'ヒスイ',
-  paldea: 'パルデア',
-  kitakami: 'キタカミ',
-  blueberry: 'ブルーベリー',
-  lumiose: 'ミアレ',
-  hyperspace_lumiose: '異次元'
-}
 
 const normalizeBaseURL = (value?: string): string => {
   const baseURL = value?.trim() || '/'
@@ -95,23 +92,6 @@ const normalizeRegionSlug = (value?: string): string => {
   return slug === LEGACY_GLOBAL_REGION_SLUG ? GLOBAL_REGION_SLUG : slug
 }
 
-const formatPokedexTitle = (area?: string, areaLabel?: string): string => {
-  const normalizedArea = normalizeRegionSlug(area)
-  const resolvedLabel = String(areaLabel ?? '').trim()
-    || REGION_LABEL_FALLBACKS[normalizedArea]
-    || normalizedArea
-
-  if (!resolvedLabel) {
-    return 'ポケモン図鑑'
-  }
-
-  if (resolvedLabel.includes('図鑑')) {
-    return resolvedLabel
-  }
-
-  return `${resolvedLabel}図鑑`
-}
-
 const formatPokemonRouteId = (value: number | string): string => {
   const normalizedValue = String(value).trim()
   if (normalizedValue.includes('_')) {
@@ -127,13 +107,20 @@ const formatPokemonImageFileName = (value: number | string): string => {
   return routeId.includes('_') ? `${routeId}.png` : `${routeId}_00000000_0_000_0.png`
 }
 
+const serverDataCache = new Map<string, unknown>()
+
 const loadGeneratedData = async <T>(relativePath: string): Promise<T> => {
   if (import.meta.server) {
+    if (serverDataCache.has(relativePath)) {
+      return serverDataCache.get(relativePath) as T
+    }
     const { readFile } = await import('node:fs/promises')
     const { resolve } = await import('node:path')
     const absolutePath = resolve(process.cwd(), 'generated-data', relativePath)
     const file = await readFile(absolutePath, 'utf-8')
-    return JSON.parse(file) as T
+    const parsed = JSON.parse(file) as T
+    serverDataCache.set(relativePath, parsed)
+    return parsed
   }
 
   const config = useRuntimeConfig() as { public: { appBaseURL?: string } }
@@ -166,6 +153,7 @@ export const usePokedex = () => {
   const config = useRuntimeConfig() as { public: { appBaseURL?: string } }
   const baseURL = normalizeBaseURL(config.public.appBaseURL)
   const getAppPath = (relativePath: string) => `${baseURL}${relativePath.replace(/^\/+/, '')}`
+  const { getRegionLabel, language, t } = useTranslation()
 
   const loadIndex = () => loadGeneratedData<PokemonIndexItem[]>('index.json')
   const loadSearchIndex = () => loadGeneratedData<SearchIndexItem[]>('search-index.json')
@@ -201,8 +189,16 @@ export const usePokedex = () => {
     const dexNumber = parsePokemonDexNumber(id)
     return Number.isFinite(dexNumber) && dexNumber > 0 ? `#${String(dexNumber).padStart(4, '0')}` : `#${String(id)}`
   }
-  const formatMeters = (value?: number) => value !== undefined ? `${value} m` : '不明'
-  const formatKilograms = (value?: number) => value !== undefined ? `${value} kg` : '不明'
+  const formatMeters = (value?: number) => value !== undefined ? `${value} m` : t('common.unknown')
+  const formatKilograms = (value?: number) => value !== undefined ? `${value} kg` : t('common.unknown')
+  const formatPokedexTitle = (area?: string, areaLabel?: string): string => {
+    const normalizedArea = normalizeRegionSlug(area)
+    const label = getRegionLabel(normalizedArea, language.value)
+    if (label && label !== normalizedArea) {
+      return label
+    }
+    return areaLabel?.trim() || label || t('pokedex.title')
+  }
   const buildPokemonDetailPath = (area: string, id: number | string, formSelector?: number | string) => {
     const routeId = formatPokemonRouteId(id)
     const normalizedFormSelector = String(formSelector ?? '').trim()

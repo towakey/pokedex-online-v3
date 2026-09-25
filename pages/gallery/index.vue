@@ -6,14 +6,14 @@ import { useSiteAppConfig } from '~/composables/useSiteAppConfig'
 const appConfig = useSiteAppConfig()
 const selectedItem = ref<GalleryItem | null>(null)
 
+const { t } = useTranslation()
 const breadcrumbs = computed(() => [
   {
-    label: 'ホーム',
+    label: t('common.home'),
     to: appConfig.navigation.home
   },
   {
-    label: 'ギャラリー',
-    to: appConfig.navigation.gallery
+    label: t('common.gallery')
   }
 ])
 
@@ -33,16 +33,7 @@ useSiteSeo({
 
 <template>
   <div class="container page-stack">
-    <nav class="breadcrumbs" aria-label="パンくずリスト">
-      <ol class="breadcrumbs__list">
-        <li v-for="(item, index) in breadcrumbs" :key="item.to" class="breadcrumbs__item">
-          <NuxtLink v-if="index < breadcrumbs.length - 1" :to="item.to" class="breadcrumbs__link">
-            {{ item.label }}
-          </NuxtLink>
-          <span v-else class="breadcrumbs__current">{{ item.label }}</span>
-        </li>
-      </ol>
-    </nav>
+    <AppBreadcrumbs :items="breadcrumbs" />
 
     <section class="hero hero--compact surface">
       <div class="hero__content">

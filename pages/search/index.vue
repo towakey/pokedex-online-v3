@@ -1,6 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useSiteAppConfig } from '~/composables/useSiteAppConfig'
+import { matchesSearchQuery } from '~/composables/useSearchNormalize'
+import { useTranslation } from '~/composables/useTranslation'
+import type { SearchIndexItem } from '~/composables/usePokedex'
+import type { SearchSuggestionItem } from '~/types/search'
 
 type SearchField = 'description' | 'name' | 'classification'
 type SearchLanguage = 'all' | 'jpn' | 'eng'
@@ -48,7 +52,8 @@ const appConfig = useSiteAppConfig()
 const runtimeConfig = useRuntimeConfig()
 const route = useRoute()
 const router = useRouter()
-const { buildPokemonDetailPath, formatPokemonRouteId, getPokemonImagePath } = usePokedex()
+const { buildPokemonDetailPath, formatPokemonNumber, formatPokemonRouteId, getPokemonImagePath, loadSearchIndex } = usePokedex()
+const { language, t, getLocalizedText } = useTranslation()
 
 const searchWord = ref('')
 const searchItems = ref<SearchField[]>(['description'])
@@ -62,6 +67,44 @@ const hasSearched = ref(false)
 const isLoading = ref(false)
 const errorMessage = ref('')
 const lastResponse = ref<SearchResponse | null>(null)
+const searchIndex = ref<SearchIndexItem[]>([])
+
+const { data: searchIndexData } = await useAsyncData('search-page-index', async () => {
+  try {
+    return await loadSearchIndex()
+  }
+  catch {
+    return [] as SearchIndexItem[]
+  }
+})
+
+searchIndex.value = searchIndexData.value ?? []
+
+const nameSuggestions = computed<SearchSuggestionItem[]>(() => {
+  if (!searchWord.value.trim()) {
+    return []
+  }
+
+  return searchIndex.value
+    .filter((pokemon) => matchesSearchQuery(
+      searchWord.value,
+      pokemon.id,
+      formatPokemonRouteId(pokemon.id),
+      pokemon.dex,
+      formatPokemonRouteId(pokemon.dex),
+      pokemon.name,
+      pokemon.classification,
+      ...Object.values(pokemon.names ?? {})
+    ))
+    .slice(0, 8)
+    .map((pokemon) => ({
+      id: pokemon.id,
+      label: getLocalizedText(pokemon.names, language.value, pokemon.name) ?? pokemon.name,
+      description: formatPokemonNumber(pokemon.dex),
+      imageSrc: getPokemonImagePath(pokemon.id),
+      to: buildPokemonDetailPath(appConfig.site.defaultArea, pokemon.dex, pokemon.id)
+    }))
+})
 
 const normalizeBaseURL = (value?: string): string => {
   const baseURL = value?.trim() || '/'
@@ -218,8 +261,8 @@ const resolveApiEndpoint = (): string => {
 
 const apiEndpoint = computed(() => resolveApiEndpoint())
 const breadcrumbItems = computed(() => [
-  { label: 'ホーム', to: appConfig.navigation.home },
-  { label: '検索' }
+  { label: t('common.home'), to: appConfig.navigation.home },
+  { label: t('common.search') }
 ])
 const canSearch = computed(() => searchWord.value.trim().length > 0 && searchItems.value.length > 0 && !isLoading.value)
 const isDebug = computed(() => route.query.debug !== undefined)
@@ -452,7 +495,7 @@ useSiteSeo({
 
       <form class="search-page__form" @submit.prevent="submitSearch">
         <div class="search-page__row">
-          <SearchBox v-model="searchWord" placeholder="キーワードを入力してください" />
+          <SearchBox v-model="searchWord" placeholder="キーワードを入力してください" :suggestions="nameSuggestions" />
         </div>
 
         <div class="search-page__options-grid">

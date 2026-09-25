@@ -1,0 +1,16 @@
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+
+  # /pokemon/{id} -> /pokedex/global/{id} (4桁ゼロ埋め)
+  RewriteRule ^pokemon/([0-9]{1,3})$ pokedex/global/$1 [R=301,L]
+  RewriteRule ^pokemon/([0-9]{4}.*)$ pokedex/global/$1 [R=301,L]
+  RewriteRule ^pokemon/(.+)$ pokedex/global/$1 [R=301,L]
+
+  # /region/{slug} -> /pokedex/{slug} (national は global へ)
+  RewriteRule ^region/national/?$ pokedex/global [R=301,L]
+  RewriteRule ^region/(.+)$ pokedex/$1 [R=301,L]
+
+  # /pokedex/national -> /pokedex/global
+  RewriteRule ^pokedex/national$ pokedex/global [R=301,L]
+  RewriteRule ^pokedex/national/(.*)$ pokedex/global/$1 [R=301,L]
+</IfModule>

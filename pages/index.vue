@@ -1,7 +1,15 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useSiteAppConfig } from '~/composables/useSiteAppConfig'
+import { useTranslation } from '~/composables/useTranslation'
+import { useTypeColor } from '~/composables/useTypeColor'
+import { useTypeName } from '~/composables/useTypeName'
+import { matchesSearchQuery } from '~/composables/useSearchNormalize'
 import type { SearchIndexItem } from '~/composables/usePokedex'
+import type { SearchSuggestionItem } from '~/types/search'
+
+type SortKey = 'dex' | 'name'
+type ViewMode = 'grid' | 'list'
 
 type LocalizedTextMap = Record<string, string>
 
@@ -37,8 +45,15 @@ const createDefaultPageData = (): HomePageData => ({
 })
 
 const route = useRoute()
-const { buildPokemonDetailPath, formatPokemonRouteId, loadRegions, loadSearchIndex } = usePokedex()
+const { buildPokemonDetailPath, formatPokemonNumber, formatPokemonRouteId, getPokemonImagePath, loadRegions, loadSearchIndex } = usePokedex()
+const { language, t, getLocalizedText: getUiLocalizedText } = useTranslation()
+const { favoriteItems, historyItems, hydrate } = usePokemonCollections()
+const { getTypeColor } = useTypeColor()
+const { getTypeName } = useTypeName()
 const searchQuery = ref('')
+const selectedTypes = ref<string[]>([])
+const sortKey = ref<SortKey>('dex')
+const viewMode = ref<ViewMode>('grid')
 const visibleCount = ref(24)
 const pokedexTopPath = computed(() => appConfig.navigation.pokedex)
 const defaultAreaPath = computed(() => `${appConfig.navigation.pokedex}/${appConfig.site.defaultArea}`)
@@ -160,26 +175,85 @@ const linkedItems = computed<HomePokemonItem[]>(() => {
   }))
 })
 
-const filteredItems = computed<HomePokemonItem[]>(() => {
-  const query = searchQuery.value.trim().toLowerCase()
-
-  if (!query) {
-    return linkedItems.value
+const getTypeButtonStyle = (type: string, isSelected: boolean) => {
+  const color = getTypeColor(type)
+  if (isSelected) {
+    return {
+      backgroundColor: color,
+      color: '#ffffff',
+      borderColor: color
+    }
   }
 
-  return linkedItems.value
-    .filter((pokemon: HomePokemonItem) => {
-      const localizedNames = Object.values(pokemon.names ?? {}).map((value: string) => value.toLowerCase())
+  return {
+    backgroundColor: `${color}33`,
+    color,
+    borderColor: `${color}66`
+  }
+}
 
-      return pokemon.id.toString().includes(query)
-        || formatPokemonRouteId(pokemon.id).includes(query)
-        || pokemon.dex.toString().includes(query)
-        || formatPokemonRouteId(pokemon.dex).includes(query)
-        || pokemon.name.toLowerCase().includes(query)
-        || pokemon.types.some((type: string) => type.toLowerCase().includes(query))
-        || localizedNames.some((name: string) => name.includes(query))
-    })
+const allTypes = computed(() =>
+  [...new Set(linkedItems.value.flatMap((item) => item.types))]
+    .sort((left, right) => (getTypeName(left, language.value) ?? left).localeCompare(
+      getTypeName(right, language.value) ?? right,
+      language.value === 'jpn' ? 'ja' : 'en'
+    ))
+)
+
+const filteredItems = computed<HomePokemonItem[]>(() => {
+  const query = searchQuery.value
+  const filtered = linkedItems.value.filter((pokemon: HomePokemonItem) => {
+    const matchesQuery = matchesSearchQuery(
+      query,
+      pokemon.id,
+      formatPokemonRouteId(pokemon.id),
+      pokemon.dex,
+      formatPokemonRouteId(pokemon.dex),
+      pokemon.name,
+      pokemon.classification,
+      ...Object.values(pokemon.names ?? {}),
+      ...pokemon.types,
+      ...pokemon.types.map((type) => getTypeName(type, language.value) ?? type)
+    )
+    const matchesTypes = selectedTypes.value.length === 0
+      || selectedTypes.value.every((type) => pokemon.types.includes(type))
+
+    return matchesQuery && matchesTypes
+  })
+
+  const locale = language.value === 'jpn' ? 'ja' : 'en'
+  return [...filtered].sort((left, right) => {
+    if (sortKey.value === 'name') {
+      const leftName = getUiLocalizedText(left.names, language.value, left.name) ?? left.name
+      const rightName = getUiLocalizedText(right.names, language.value, right.name) ?? right.name
+      return leftName.localeCompare(rightName, locale) || left.dex - right.dex
+    }
+
+    return left.dex - right.dex || left.id.localeCompare(right.id)
+  })
 })
+
+const searchSuggestions = computed<SearchSuggestionItem[]>(() => {
+  return filteredItems.value.slice(0, 8).map((pokemon) => ({
+    id: pokemon.id,
+    label: getUiLocalizedText(pokemon.names, language.value, pokemon.name) ?? pokemon.name,
+    description: formatPokemonNumber(pokemon.dex),
+    imageSrc: getPokemonImagePath(pokemon.id),
+    to: pokemon.detailPath
+  }))
+})
+
+const toggleType = (type: string) => {
+  selectedTypes.value = selectedTypes.value.includes(type)
+    ? selectedTypes.value.filter((value) => value !== type)
+    : [...selectedTypes.value, type]
+}
+
+const clearFilters = () => {
+  searchQuery.value = ''
+  selectedTypes.value = []
+  sortKey.value = 'dex'
+}
 
 const visibleItems = computed(() => filteredItems.value.slice(0, visibleCount.value))
 const adInsertInterval = 10
@@ -211,8 +285,12 @@ const visibleGridEntries = computed<HomeGridEntry[]>(() => {
 })
 const canLoadMore = computed(() => visibleItems.value.length < filteredItems.value.length)
 
-watch(searchQuery, () => {
+watch([searchQuery, selectedTypes, sortKey], () => {
   visibleCount.value = 24
+})
+
+onMounted(() => {
+  hydrate()
 })
 
 const debugPayload = computed(() => JSON.stringify({
@@ -228,10 +306,46 @@ useSiteSeo({
   title: 'ホーム',
   description: '全国図鑑から地方図鑑まで、ポケモンの種族値・タイプ・特性・図鑑説明を検索できるポケモン図鑑サイトです。'
 })
+
+const toAbsoluteUrl = useAbsoluteUrl()
+
+useJsonLd(() => {
+  const siteUrl = toAbsoluteUrl('/')
+  const searchUrl = toAbsoluteUrl('/search?q={search_term_string}')
+  const regions = pageData.value.regions.slice(0, 6)
+
+  return {
+    '@context': 'https://schema.org',
+    '@graph': [
+      {
+        '@type': 'WebSite',
+        name: appConfig.site.name,
+        description: '全国図鑑から地方図鑑まで、ポケモンの種族値・タイプ・特性・図鑑説明を検索できるポケモン図鑑サイトです。',
+        url: siteUrl,
+        potentialAction: {
+          '@type': 'SearchAction',
+          target: searchUrl,
+          'query-input': 'required name=search_term_string'
+        }
+      },
+      {
+        '@type': 'ItemList',
+        itemListElement: regions.map((region, index) => ({
+          '@type': 'ListItem',
+          position: index + 1,
+          name: region.label,
+          url: toAbsoluteUrl(`${appConfig.navigation.pokedex}/${region.slug}`)
+        }))
+      }
+    ]
+  }
+})
 </script>
 
 <template>
   <div class="container page-stack">
+    <AppBreadcrumbs :items="[{ label: t('common.home') }]" />
+
     <section class="hero surface">
       <div class="hero__content">
         <span class="eyebrow"></span>
@@ -252,12 +366,38 @@ useSiteSeo({
       </div>
 
       <div class="search-panel">
-        <SearchBox v-model="searchQuery" />
+        <SearchBox v-model="searchQuery" :suggestions="searchSuggestions" />
         <p class="search-panel__hint">
-          名前、図鑑番号、タイプで絞り込めます。
+          {{ t('common.searchHint') }}
         </p>
+        <div v-if="allTypes.length > 0" class="filter-chip-list">
+          <button
+            v-for="type in allTypes"
+            :key="type"
+            type="button"
+            class="filter-chip"
+            :class="{ 'filter-chip--active': selectedTypes.includes(type) }"
+            :style="getTypeButtonStyle(type, selectedTypes.includes(type))"
+            @click="toggleType(type)"
+          >
+            {{ getTypeName(type, language) }}
+          </button>
+        </div>
       </div>
     </section>
+
+    <CollectionRail
+      v-if="favoriteItems.length > 0"
+      :title="t('common.favorites')"
+      :items="favoriteItems"
+      :empty-message="t('common.emptyFavorites')"
+    />
+    <CollectionRail
+      v-if="historyItems.length > 0"
+      :title="t('common.recent')"
+      :items="historyItems"
+      :empty-message="t('common.emptyRecent')"
+    />
 
     <section v-if="pageData.regions.length > 0" class="surface section-card">
       <div class="section-header">
@@ -293,7 +433,8 @@ useSiteSeo({
       </div>
     </section>
 
-    <section v-if="!pageData.ready" class="empty-state surface">
+    <PageSkeleton v-if="!pageData.ready && !pageData.message" />
+    <section v-else-if="!pageData.ready" class="empty-state surface">
       <span class="eyebrow">Setup Required</span>
       <h2 class="section-title">データ生成がまだ行われていません</h2>
       <p class="empty-state__message">
@@ -311,19 +452,58 @@ useSiteSeo({
       <div class="section-header">
         <div>
           <span class="eyebrow">Global Dex</span>
-          <h2 class="section-title">ポケモン一覧</h2>
+          <h2 class="section-title">{{ t('pokedex.pokemonList') }}</h2>
         </div>
         <p class="section-caption">
-          {{ filteredItems.length.toLocaleString() }} 件表示
+          {{ t('common.count', { count: filteredItems.length.toLocaleString() }) }}
         </p>
       </div>
 
-      <div class="pokemon-grid">
+      <div class="toolbar-row">
+        <label class="toolbar-field">
+          <span class="toolbar-field__label">{{ t('pokedex.sort') }}</span>
+          <select v-model="sortKey" class="toolbar-select">
+            <option value="dex">{{ t('pokedex.sortDex') }}</option>
+            <option value="name">{{ t('pokedex.sortName') }}</option>
+          </select>
+        </label>
+        <div class="toolbar-field">
+          <span class="toolbar-field__label">{{ t('pokedex.viewMode') }}</span>
+          <div class="toolbar-toggle">
+            <button
+              type="button"
+              class="toolbar-toggle__button"
+              :class="{ 'toolbar-toggle__button--active': viewMode === 'grid' }"
+              @click="viewMode = 'grid'"
+            >
+              {{ t('pokedex.viewGrid') }}
+            </button>
+            <button
+              type="button"
+              class="toolbar-toggle__button"
+              :class="{ 'toolbar-toggle__button--active': viewMode === 'list' }"
+              @click="viewMode = 'list'"
+            >
+              {{ t('pokedex.viewList') }}
+            </button>
+          </div>
+        </div>
+        <button type="button" class="button-primary button-primary--secondary" @click="clearFilters">
+          {{ t('common.clear') }}
+        </button>
+      </div>
+
+      <p v-if="filteredItems.length === 0" class="empty-state__message">
+        {{ t('pokedex.noFilterResults') }}
+      </p>
+
+      <div class="pokemon-grid" :class="{ 'pokemon-grid--list': viewMode === 'list' }">
         <template v-for="entry in visibleGridEntries" :key="entry.key">
           <PokemonCard
             v-if="entry.type === 'pokemon' && entry.pokemon"
             :pokemon="entry.pokemon"
             :to="entry.pokemon.detailPath"
+            :layout="viewMode"
           />
           <div v-else class="pokemon-grid__ad">
             <AdSenseCard
@@ -337,9 +517,11 @@ useSiteSeo({
         </template>
       </div>
 
+      <InfiniteScrollSentinel :active="canLoadMore" @visible="visibleCount += 24" />
+
       <div v-if="canLoadMore" class="load-more-row">
         <button class="button-primary" type="button" @click="visibleCount += 24">
-          さらに表示
+          {{ t('common.loadMore') }}
         </button>
       </div>
     </section>

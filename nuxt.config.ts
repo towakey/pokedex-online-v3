@@ -10,6 +10,8 @@ const regionDir = resolve(generatedDataDir, 'region')
 const prerenderConcurrencyValue = process.env.NUXT_PRERENDER_CONCURRENCY
 const prerenderConcurrency = prerenderConcurrencyValue ? Number(prerenderConcurrencyValue) : undefined
 const prerenderCrawlLinks = process.env.NUXT_PRERENDER_CRAWL_LINKS === 'true'
+const prerenderCustomRoutes = process.env.NUXT_PRERENDER_ROUTES
+const prerenderSample = process.env.NUXT_PRERENDER_SAMPLE ? Number(process.env.NUXT_PRERENDER_SAMPLE) : undefined
 const prerenderConcurrencyOptions = prerenderConcurrency !== undefined && Number.isFinite(prerenderConcurrency) && prerenderConcurrency > 0
   ? { concurrency: prerenderConcurrency }
   : {}
@@ -30,45 +32,35 @@ const formatPokemonRouteId = (id: number | string) => {
 }
 
 const createPrerenderRoutes = () => {
-  const routes = new Set<string>(['/', '/gallery', '/search', '/search/tag', '/pokedex', '/sitemap.xml', '/robots.txt'])
-
-  if (existsSync(pokemonDir)) {
-    for (const file of readdirSync(pokemonDir)) {
-      if (file.endsWith('.json')) {
-        const id = file.replace(/\.json$/, '')
-        const routeId = formatPokemonRouteId(id)
-        routes.add(`/pokemon/${id}`)
-        routes.add(`/pokemon/${routeId}`)
-        routes.add(`/pokedex/global/${id}`)
-        routes.add(`/pokedex/global/${routeId}`)
-      }
+  if (prerenderCustomRoutes) {
+    const list = prerenderCustomRoutes.split(',').map((r) => r.trim()).filter(Boolean)
+    if (list.length > 0) {
+      return list
     }
   }
+
+  const routes = new Set<string>(['/', '/gallery', '/search', '/search/tag', '/favorites', '/pokedex', '/sitemap.xml', '/robots.txt'])
+  const sampleLimit = prerenderSample !== undefined && Number.isFinite(prerenderSample) && prerenderSample > 0
+    ? prerenderSample
+    : undefined
 
   if (existsSync(regionDir)) {
     for (const file of readdirSync(regionDir)) {
       if (file.endsWith('.json')) {
         const slug = file.replace(/\.json$/, '')
         const normalizedSlug = normalizeRegionSlug(slug)
-        routes.add(`/region/${slug}`)
         routes.add(`/pokedex/${normalizedSlug}`)
-
-        if (slug !== normalizedSlug) {
-          routes.add(`/pokedex/${slug}`)
-        }
 
         try {
           const entries = JSON.parse(readFileSync(resolve(regionDir, file), 'utf-8')) as RegionRouteEntry[]
+          let count = 0
           for (const entry of entries) {
-            if (entry.pokemon_id) {
+            if (entry.dex) {
               const dexRouteId = formatPokemonRouteId(entry.dex)
-              const legacyRouteId = formatPokemonRouteId(entry.pokemon_id)
               routes.add(`/pokedex/${normalizedSlug}/${dexRouteId}`)
-              routes.add(`/pokedex/${normalizedSlug}/${legacyRouteId}`)
-
-              if (slug !== normalizedSlug) {
-                routes.add(`/pokedex/${slug}/${dexRouteId}`)
-                routes.add(`/pokedex/${slug}/${legacyRouteId}`)
+              count++
+              if (sampleLimit && count >= sampleLimit) {
+                break
               }
             }
           }
@@ -100,6 +92,7 @@ export default defineNuxtConfig({
   app: {
     baseURL: appBaseURL,
     head: {
+      htmlAttrs: { lang: 'ja' },
       titleTemplate: '%s | Pokédex Online',
       meta: [
         { charset: 'utf-8' },
@@ -127,6 +120,7 @@ export default defineNuxtConfig({
     '/gallery': { prerender: true },
     '/search': { prerender: true },
     '/search/tag': { prerender: true },
+    '/favorites': { prerender: true },
     '/pokedex': { prerender: true },
     '/pokedex/**': { prerender: true }
   }
