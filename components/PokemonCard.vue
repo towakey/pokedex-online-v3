@@ -19,7 +19,7 @@ const props = withDefaults(defineProps<{
 
 const appConfig = useSiteAppConfig()
 const { buildPokemonDetailPath, formatPokemonNumber, getPokemonImagePath } = usePokedex()
-const { getTypeColor } = useTypeColor()
+const { getTypeColor, getTypePanelColor } = useTypeColor()
 const { getTypeName } = useTypeName()
 const { language: preferredLanguage, getLocalizedText, t } = useTranslation()
 const pokemonNumber = computed(() => formatPokemonNumber(props.pokemon.dex).replace(/^#/, ''))
@@ -30,15 +30,12 @@ const cardLink = computed(() => props.to ?? buildPokemonDetailPath(appConfig.sit
 const primaryImageSrc = computed(() => getPokemonImagePath(props.pokemon.id))
 const fallbackImageSrc = computed(() => getPokemonImagePath(props.pokemon.dex))
 const tileColor = computed(() => getTypeColor(props.pokemon.types[0] ?? ''))
-const tileColor2 = computed(() => getTypeColor(props.pokemon.types[1] ?? ''))
+const tilePanelColor = computed(() => getTypePanelColor(props.pokemon.types[1] ?? props.pokemon.types[0] ?? ''))
 const isDualType = computed(() => Boolean(props.pokemon.types[1]))
-const tileStyle = computed(() => {
-  const style: Record<string, string> = { '--tile-bg': tileColor.value }
-  if (isDualType.value) {
-    style['--tile-bg-2'] = tileColor2.value
-  }
-  return style
-})
+const tileStyle = computed(() => ({
+  '--tile-bg': tileColor.value,
+  '--tile-panel': tilePanelColor.value
+}))
 const imageVisible = ref(true)
 const imageSrc = ref('')
 
