@@ -136,16 +136,13 @@ useSiteSeo({
   overflow: hidden;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 18px;
-  background: white;
-  box-shadow: var(--shadow);
-  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+  border-radius: 0;
+  background: var(--surface);
+  transition: border-color 0.15s ease;
 }
 
 .gallery-card:hover {
-  transform: translateY(-3px);
-  border-color: #90caf9;
-  box-shadow: var(--shadow-strong);
+  border-color: var(--primary);
 }
 
 .gallery-card__image {
@@ -164,7 +161,7 @@ useSiteSeo({
   justify-content: center;
   min-height: 30px;
   padding: 0 10px;
-  border-radius: 999px;
+  border-radius: 0;
   background: rgba(15, 23, 42, 0.72);
   color: white;
   font-size: 0.82rem;
@@ -193,8 +190,7 @@ useSiteSeo({
   display: flex;
   justify-content: flex-end;
   padding: 12px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.94), rgba(255, 255, 255, 0.72));
-  backdrop-filter: blur(8px);
+  background: var(--surface);
 }
 
 .gallery-dialog__close {
@@ -207,7 +203,7 @@ useSiteSeo({
   width: 100%;
   max-height: 68vh;
   object-fit: contain;
-  background: #f8fbff;
+  background: var(--surface-soft);
 }
 
 .gallery-dialog__body {
@@ -229,14 +225,15 @@ useSiteSeo({
   width: fit-content;
   min-height: 42px;
   padding: 0 16px;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--primary-soft);
   color: var(--primary-strong);
   font-weight: 700;
 }
 
 .gallery-dialog__link:hover {
-  background: #d6eafc;
+  background: var(--primary);
+  color: #ffffff;
 }
 
 @media (max-width: 960px) {

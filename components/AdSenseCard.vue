@@ -208,7 +208,7 @@ watch(
   display: grid;
   gap: 0;
   border: 1px solid rgba(148, 163, 184, 0.22);
-  border-radius: 1rem;
+  border-radius: 0;
   background: rgba(255, 255, 255, 0.72);
   overflow: hidden;
 }
@@ -240,8 +240,8 @@ watch(
   min-height: inherit;
   padding: 1rem;
   border: 1px dashed rgba(148, 163, 184, 0.35);
-  border-radius: 0.75rem;
-  background: linear-gradient(135deg, rgba(248, 250, 252, 0.92), rgba(241, 245, 249, 0.92));
+  border-radius: 0;
+  background: rgba(245, 247, 250, 0.9);
   color: #334155;
   text-align: center;
 }

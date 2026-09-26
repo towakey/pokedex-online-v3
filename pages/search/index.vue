@@ -705,8 +705,8 @@ useSiteSeo({
   min-height: 42px;
   padding: 0 14px;
   border: 1px solid var(--border);
-  border-radius: 14px;
-  background: white;
+  border-radius: 0;
+  background: var(--surface);
 }
 
 .search-page__checkbox,
@@ -746,7 +746,7 @@ useSiteSeo({
   place-items: center;
   width: 96px;
   height: 96px;
-  border-radius: 18px;
+  border-radius: 0;
   background: var(--surface-soft);
   border: 1px solid var(--border);
   overflow: hidden;
@@ -794,7 +794,7 @@ useSiteSeo({
 
 .search-result-card__text :deep(mark) {
   padding: 0 0.2em;
-  border-radius: 0.35em;
+  border-radius: 0;
   background: #fff3bf;
 }
 

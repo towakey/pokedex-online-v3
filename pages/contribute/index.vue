@@ -201,7 +201,7 @@ useSiteSeo({
   width: 26px;
   height: 26px;
   flex-shrink: 0;
-  border-radius: 50%;
+  border-radius: 0;
   background: var(--primary-soft);
   color: var(--primary-strong);
   font-size: 0.85rem;

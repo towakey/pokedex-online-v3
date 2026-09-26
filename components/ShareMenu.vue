@@ -292,7 +292,7 @@ onBeforeUnmount(() => {
   min-width: 176px;
   padding: 8px;
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 0;
   background: var(--surface);
   box-shadow: var(--shadow);
 }
@@ -312,7 +312,7 @@ onBeforeUnmount(() => {
   min-height: 40px;
   padding: 0 12px;
   border: 0;
-  border-radius: 10px;
+  border-radius: 0;
   background: transparent;
   color: var(--text);
   text-align: left;

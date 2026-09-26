@@ -561,7 +561,7 @@ useJsonLd(() => {
   justify-content: center;
   min-width: 64px;
   padding: 0.35rem 0.75rem;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--surface-soft);
   color: var(--text-soft);
   font-size: 0.85rem;

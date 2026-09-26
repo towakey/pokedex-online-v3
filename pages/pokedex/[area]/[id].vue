@@ -2248,7 +2248,7 @@ useJsonLd(() => {
   width: 22px;
   height: auto;
   aspect-ratio: 4 / 3;
-  border-radius: 3px;
+  border-radius: 0;
   box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.18);
   flex-shrink: 0;
 }
@@ -2280,7 +2280,7 @@ useJsonLd(() => {
   gap: 1rem;
   padding: 0.85rem 1rem;
   border: 1px solid rgba(148, 163, 184, 0.25);
-  border-radius: 1rem;
+  border-radius: 0;
   background: var(--surface-soft);
   color: inherit;
   text-decoration: none;
@@ -2336,7 +2336,7 @@ useJsonLd(() => {
 
 .global-description-group {
   border: 1px solid rgba(148, 163, 184, 0.25);
-  border-radius: 1rem;
+  border-radius: 0;
   background: var(--surface-soft);
 }
 
@@ -2346,7 +2346,7 @@ useJsonLd(() => {
   width: 100%;
   padding: 1rem;
   border: 0;
-  border-radius: 1rem;
+  border-radius: 0;
   background: transparent;
   color: inherit;
   text-align: left;
@@ -2364,7 +2364,7 @@ useJsonLd(() => {
   align-items: center;
   gap: 0.45rem;
   padding: 0.35rem 0.7rem;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--tint);
 }
 
@@ -2396,7 +2396,7 @@ useJsonLd(() => {
   display: grid;
   gap: 0.6rem;
   padding: 0.9rem 1rem;
-  border-radius: 0.85rem;
+  border-radius: 0;
   background: var(--tint-soft);
 }
 
@@ -2435,7 +2435,7 @@ useJsonLd(() => {
   align-items: center;
   gap: 0.4rem;
   padding: 0.32rem 0.7rem;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--tint);
   font-size: 0.82rem;
   line-height: 1.2;
@@ -2522,7 +2522,7 @@ useJsonLd(() => {
     width: 44px;
     height: 44px;
     border: 1px solid rgba(148, 163, 184, 0.4);
-    border-radius: 0.5rem;
+    border-radius: 0;
     background: var(--surface);
     font-size: 1.2rem;
     font-weight: 700;
@@ -2544,7 +2544,7 @@ useJsonLd(() => {
     font-weight: 600;
     padding: 0.5rem;
     background: var(--tint-soft);
-    border-radius: 0.5rem;
+    border-radius: 0;
   }
 }
 
@@ -2587,13 +2587,13 @@ useJsonLd(() => {
   gap: 0.5rem;
   padding: 0.55rem 0.8rem;
   border: 1px solid rgba(25, 118, 210, 0.2);
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--primary-soft);
 }
 
 .tag-chip__area {
   padding: 0.16rem 0.45rem;
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--tint-strong);
   color: var(--text-soft);
   font-size: 0.78rem;
@@ -2612,7 +2612,7 @@ useJsonLd(() => {
   width: 30px;
   height: 30px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 0;
   background: var(--surface);
   transition: transform 0.2s ease, border-color 0.2s ease, background-color 0.2s ease;
 }
@@ -2623,7 +2623,7 @@ useJsonLd(() => {
 }
 
 .tag-vote-button:not(:disabled):hover {
-  transform: translateY(-1px);
+  border-color: var(--primary);
 }
 
 .tag-vote-button--active {
@@ -2719,7 +2719,7 @@ useJsonLd(() => {
   min-height: 46px;
   padding: 0.8rem 0.95rem;
   border: 1px solid var(--border);
-  border-radius: 14px;
+  border-radius: 0;
   background: var(--input-bg);
   color: var(--text);
 }
@@ -2751,7 +2751,7 @@ useJsonLd(() => {
   z-index: 90;
   max-width: min(420px, calc(100vw - 2rem));
   padding: 0.9rem 1rem;
-  border-radius: 14px;
+  border-radius: 0;
   color: white;
   box-shadow: var(--shadow-strong);
 }

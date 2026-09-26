@@ -29,6 +29,16 @@ const cardSubtitle = computed(() => props.subtitle ?? t('pokedex.nationalNo', { 
 const cardLink = computed(() => props.to ?? buildPokemonDetailPath(appConfig.site.defaultArea, props.pokemon.dex, props.pokemon.id))
 const primaryImageSrc = computed(() => getPokemonImagePath(props.pokemon.id))
 const fallbackImageSrc = computed(() => getPokemonImagePath(props.pokemon.dex))
+const tileColor = computed(() => getTypeColor(props.pokemon.types[0] ?? ''))
+const tileColor2 = computed(() => getTypeColor(props.pokemon.types[1] ?? ''))
+const isDualType = computed(() => Boolean(props.pokemon.types[1]))
+const tileStyle = computed(() => {
+  const style: Record<string, string> = { '--tile-bg': tileColor.value }
+  if (isDualType.value) {
+    style['--tile-bg-2'] = tileColor2.value
+  }
+  return style
+})
 const imageVisible = ref(true)
 const imageSrc = ref('')
 
@@ -48,7 +58,12 @@ const handleImageError = () => {
 </script>
 
 <template>
-  <NuxtLink :to="cardLink" class="pokemon-card" :class="{ 'pokemon-card--list': layout === 'list' }">
+  <NuxtLink
+    :to="cardLink"
+    class="pokemon-card"
+    :class="{ 'pokemon-card--list': layout === 'list', 'pokemon-card--dual': isDualType }"
+    :style="tileStyle"
+  >
     <div class="pokemon-card__media">
       <img
         v-if="imageVisible"

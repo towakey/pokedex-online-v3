@@ -391,7 +391,7 @@ const headerSharePayload = computed<HeaderSharePayload>(() => {
   gap: 14px;
   min-width: 220px;
   padding: 14px;
-  border-radius: 14px;
+  border-radius: 0;
   background: var(--surface);
   border: 1px solid var(--border);
   box-shadow: var(--shadow);
@@ -420,7 +420,7 @@ const headerSharePayload = computed<HeaderSharePayload>(() => {
   padding: 6px 4px;
   font-size: 0.78rem;
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: 0;
   border: 1px solid var(--border);
   background: var(--surface-soft);
   color: var(--text);
@@ -443,7 +443,7 @@ const headerSharePayload = computed<HeaderSharePayload>(() => {
   min-height: 38px;
   padding: 0 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: 0;
   background: var(--surface-soft);
   color: var(--text);
   font-size: 0.9rem;
@@ -455,7 +455,6 @@ const headerSharePayload = computed<HeaderSharePayload>(() => {
   inset: 0;
   z-index: 200;
   background: rgba(15, 23, 42, 0.65);
-  backdrop-filter: blur(4px);
   display: grid;
   place-items: start center;
   padding: 60px 16px 24px;
@@ -465,12 +464,11 @@ const headerSharePayload = computed<HeaderSharePayload>(() => {
 .header-search-modal__container {
   width: min(600px, 100%);
   padding: 16px 20px 24px;
-  border-radius: 16px;
+  border-radius: 0;
   display: grid;
   gap: 12px;
   background: var(--surface);
   border: 1px solid var(--border);
-  box-shadow: 0 20px 45px rgba(0, 0, 0, 0.35);
   animation: modal-slide-down 0.2s ease-out;
 }
 
