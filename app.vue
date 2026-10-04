@@ -1,10 +1,20 @@
 <script setup lang="ts">
 useHead({
+  meta: [
+    { name: 'mobile-web-app-capable', content: 'yes' },
+    { name: 'apple-mobile-web-app-capable', content: 'yes' },
+    { name: 'apple-mobile-web-app-status-bar-style', content: 'default' },
+    { name: 'apple-mobile-web-app-title', content: 'Pokédex' }
+  ],
   link: [
     {
       rel: 'icon',
       type: 'image/png',
       href: '/icon.png'
+    },
+    {
+      rel: 'apple-touch-icon',
+      href: '/apple-touch-icon.png'
     },
     {
       rel: 'manifest',

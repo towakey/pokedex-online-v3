@@ -1,10 +1,16 @@
 @echo off
 setlocal EnableDelayedExpansion
 
+REM auto mode: upload-to-server.bat auto で全プロンプトを既定値でスキップ
+set "AUTO_MODE="
+if /i "%~1"=="auto" set "AUTO_MODE=1"
+if /i "%~1"=="--auto" set "AUTO_MODE=1"
+
 echo ====================================
 echo    Static Site Upload Script (Nuxt v3)
 echo ====================================
 echo.
+if defined AUTO_MODE echo [AUTO MODE] All prompts will use default values.
 
 REM ===========================================
 REM SSH Connection Settings (Default Values)
@@ -13,7 +19,7 @@ REM ===========================================
 set DEFAULT_SSH_HOST=kyosserver.sakura.ne.jp
 set DEFAULT_SSH_USER=kyosserver
 set DEFAULT_REMOTE_PATH=/home/kyosserver/www/pokedex-online
-set DEFAULT_SSH_KEY_FILE=
+set DEFAULT_SSH_KEY_FILE=%USERPROFILE%\.ssh\id_ed25519
 set DEFAULT_SSH_PORT=22
 
 REM ===========================================
@@ -33,34 +39,42 @@ set "DEFAULT_SYNC_MODE=update"
 
 REM ===========================================
 
-REM SSH Connection Information Input
-echo Enter SSH connection information (Press Enter for default values):
-echo.
+if defined AUTO_MODE (
+    set "SSH_HOST=%DEFAULT_SSH_HOST%"
+    set "SSH_USER=%DEFAULT_SSH_USER%"
+    set "REMOTE_PATH=%DEFAULT_REMOTE_PATH%"
+    set "SSH_PORT=%DEFAULT_SSH_PORT%"
+    set "SSH_KEY_FILE=%DEFAULT_SSH_KEY_FILE%"
+) else (
+    REM SSH Connection Information Input
+    echo Enter SSH connection information ^(Press Enter for default values^):
+    echo.
 
-REM SSH_HOST Input
-set /p "SSH_HOST=SSH Host [%DEFAULT_SSH_HOST%]: "
-if "%SSH_HOST%" == "" set SSH_HOST=%DEFAULT_SSH_HOST%
+    REM SSH_HOST Input
+    set /p "SSH_HOST=SSH Host [%DEFAULT_SSH_HOST%]: "
+    if "%SSH_HOST%" == "" set SSH_HOST=%DEFAULT_SSH_HOST%
 
-REM SSH_USER Input
-set /p "SSH_USER=SSH User [%DEFAULT_SSH_USER%]: "
-if "%SSH_USER%" == "" set SSH_USER=%DEFAULT_SSH_USER%
+    REM SSH_USER Input
+    set /p "SSH_USER=SSH User [%DEFAULT_SSH_USER%]: "
+    if "%SSH_USER%" == "" set SSH_USER=%DEFAULT_SSH_USER%
 
-REM REMOTE_PATH Input
-echo.
-echo Enter upload destination directory:
-echo Examples: /home/user/public_html, /var/www/html, /home/user/www
-set /p "REMOTE_PATH=Remote Path [%DEFAULT_REMOTE_PATH%]: "
-if "%REMOTE_PATH%" == "" set REMOTE_PATH=%DEFAULT_REMOTE_PATH%
+    REM REMOTE_PATH Input
+    echo.
+    echo Enter upload destination directory:
+    echo Examples: /home/user/public_html, /var/www/html, /home/user/www
+    set /p "REMOTE_PATH=Remote Path [%DEFAULT_REMOTE_PATH%]: "
+    if "%REMOTE_PATH%" == "" set REMOTE_PATH=%DEFAULT_REMOTE_PATH%
 
-REM SSH_PORT Input
-set /p "SSH_PORT=SSH Port [%DEFAULT_SSH_PORT%]: "
-if "%SSH_PORT%" == "" set SSH_PORT=%DEFAULT_SSH_PORT%
+    REM SSH_PORT Input
+    set /p "SSH_PORT=SSH Port [%DEFAULT_SSH_PORT%]: "
+    if "%SSH_PORT%" == "" set SSH_PORT=%DEFAULT_SSH_PORT%
 
-REM SSH_KEY_FILE Input
-echo.
-echo SSH private key file path (leave empty for password auth):
-set /p "SSH_KEY_FILE=SSH Key File [%DEFAULT_SSH_KEY_FILE%]: "
-if "%SSH_KEY_FILE%" == "" set SSH_KEY_FILE=%DEFAULT_SSH_KEY_FILE%
+    REM SSH_KEY_FILE Input
+    echo.
+    echo SSH private key file path ^(leave empty for password auth^):
+    set /p "SSH_KEY_FILE=SSH Key File [%DEFAULT_SSH_KEY_FILE%]: "
+    if "%SSH_KEY_FILE%" == "" set SSH_KEY_FILE=%DEFAULT_SSH_KEY_FILE%
+)
 
 echo.
 echo ===========================================
@@ -86,8 +100,12 @@ if not "%SSH_KEY_FILE%" == "" (
     echo SSH Auth: Password
 )
 echo.
-echo Start upload with these settings? (Y/N)
-set /p "CONFIRM="
+if defined AUTO_MODE (
+    set "CONFIRM=Y"
+) else (
+    echo Start upload with these settings? ^(Y/N^)
+    set /p "CONFIRM="
+)
 if /i not "%CONFIRM%" == "Y" (
     echo Upload cancelled.
     pause
@@ -99,9 +117,9 @@ cd /d "%~dp0"
 
 REM Decide whether to skip generation if existing output is found
 set SKIP_GENERATE=0
-if exist ".output\public\*" (
+if not defined AUTO_MODE if exist ".output\public\*" (
     echo Detected existing static files under .output\public
-    echo Skip static site generation and use existing files? (Y/N)
+    echo Skip static site generation and use existing files? ^(Y/N^)
     set /p "CONFIRM_SKIP_GEN="
     if /i "!CONFIRM_SKIP_GEN!"=="Y" (
         set SKIP_GENERATE=1
@@ -173,7 +191,11 @@ if not "%SSH_KEY_FILE%" == "" (
 
 if errorlevel 1 (
     echo [WARNING] SSH connection test failed. Please check authentication.
-    echo Continue anyway? (Y/N)
+    if defined AUTO_MODE (
+        echo [ERROR] AUTO_MODE: aborting on SSH connection failure.
+        exit /b 1
+    )
+    echo Continue anyway? ^(Y/N^)
     set /p "CONTINUE="
     if /i not "!CONTINUE!" == "Y" (
         echo Upload cancelled.
@@ -186,8 +208,12 @@ echo.
 echo [4/4] Starting file upload...
 
 REM Create backup of remote directory (optional)
-echo Create backup of remote directory? (Y/N)
-set /p "CREATE_BACKUP="
+if defined AUTO_MODE (
+    set "CREATE_BACKUP=N"
+) else (
+    echo Create backup of remote directory? ^(Y/N^)
+    set /p "CREATE_BACKUP="
+)
 if /i "!CREATE_BACKUP!" == "Y" (
     echo Creating backup...
     set BACKUP_NAME=backup_!date:~0,4!!date:~5,2!!date:~8,2!_!time:~0,2!!time:~3,2!!time:~6,2!
@@ -203,11 +229,15 @@ if /i "!CREATE_BACKUP!" == "Y" (
 
 REM Ask for sync mode
 echo.
-echo Sync mode:
-echo   [1] Update only - upload new/modified files only (faster)
-echo   [2] Full sync - delete remote files not in local (complete sync)
-set /p "SYNC_CHOICE=Select sync mode [1]: "
-if "!SYNC_CHOICE!" == "" set "SYNC_CHOICE=1"
+if defined AUTO_MODE (
+    set "SYNC_CHOICE=1"
+) else (
+    echo Sync mode:
+    echo   [1] Update only - upload new/modified files only ^(faster^)
+    echo   [2] Full sync - delete remote files not in local ^(complete sync^)
+    set /p "SYNC_CHOICE=Select sync mode [1]: "
+    if "!SYNC_CHOICE!" == "" set "SYNC_CHOICE=1"
+)
 if "!SYNC_CHOICE!" == "2" (
     set "SYNC_MODE=full"
 ) else (
@@ -255,14 +285,22 @@ for %%E in (%EXCLUDE_EXTENSIONS%) do (
         set "WSL_EXCLUDES=!WSL_EXCLUDES! --exclude='!EXCLUDE_DIR_PATTERN!/**/*.%%E'"
     )
 )
-REM twitter-bot の運用データ(DB・ログ)はサーバー側で生成されるため除外
-set "WSL_EXCLUDES=!WSL_EXCLUDES! --exclude='/twitter-bot/data/'"
+REM twitter-bot と商品APIの運用データ(SQLite DB)はサーバー側で保持するため除外
+set "WSL_EXCLUDES=!WSL_EXCLUDES! --exclude='/twitter-bot/data/' --exclude='/pokedex/products/data/'"
 if not "!WSL_EXCLUDES!" == "" (
     echo Exclude patterns:!WSL_EXCLUDES!
 )
 
 if not "!WSL_KEY!" == "" (
-    wsl rsync -avz !RSYNC_DELETE! !WSL_EXCLUDES! -e "ssh -i !WSL_KEY! -p %SSH_PORT% -o StrictHostKeyChecking=no" "!WSL_SOURCE!" "%SSH_USER%@%SSH_HOST%:%REMOTE_PATH%/"
+    REM /mnt/c 上の鍵はパーミッション0777扱いでsshに拒否されるためWSL側に複製して使う
+    echo Copying SSH key into WSL...
+    wsl bash -c "mkdir -p ~/.ssh && chmod 700 ~/.ssh && cp '!WSL_KEY!' ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519"
+    if errorlevel 1 (
+        echo [ERROR] Failed to copy SSH key into WSL.
+        pause
+        exit /b 1
+    )
+    wsl bash -c "rsync -avz !RSYNC_DELETE! !WSL_EXCLUDES! -e 'ssh -i ~/.ssh/id_ed25519 -p %SSH_PORT% -o StrictHostKeyChecking=no -o BatchMode=yes' '!WSL_SOURCE!' '%SSH_USER%@%SSH_HOST%:%REMOTE_PATH%/'"
 ) else (
     wsl rsync -avz !RSYNC_DELETE! !WSL_EXCLUDES! -e "ssh -p %SSH_PORT%" "!WSL_SOURCE!" "%SSH_USER%@%SSH_HOST%:%REMOTE_PATH%/"
 )
@@ -279,10 +317,10 @@ echo Uploading using scp...
 echo NOTE: scp does not support incremental sync. Consider installing WSL for rsync.
 
 REM Only delete remote files in full sync mode
-REM (twitter-bot/data はサーバー上の運用データのため退避して保持)
+REM (twitter-bot/data と pokedex/products/data はサーバー側の運用データのため退避して保持)
 if "!SYNC_MODE!" == "full" (
     echo Deleting existing files...
-    set "PRESERVE_CMD=if [ -d %REMOTE_PATH%/twitter-bot/data ]; then mv %REMOTE_PATH%/twitter-bot/data /tmp/tb_data_$$$$; fi; rm -rf %REMOTE_PATH%/* %REMOTE_PATH%/.*[!.]*; mkdir -p %REMOTE_PATH%/twitter-bot; if [ -d /tmp/tb_data_$$$$ ]; then mv /tmp/tb_data_$$$$ %REMOTE_PATH%/twitter-bot/data; fi"
+    set "PRESERVE_CMD=if [ -d %REMOTE_PATH%/twitter-bot/data ]; then mv %REMOTE_PATH%/twitter-bot/data /tmp/tb_data_$$$$; fi; if [ -d %REMOTE_PATH%/pokedex/products/data ]; then mv %REMOTE_PATH%/pokedex/products/data /tmp/pd_data_$$$$; fi; rm -rf %REMOTE_PATH%/* %REMOTE_PATH%/.*[!.]*; mkdir -p %REMOTE_PATH%/twitter-bot %REMOTE_PATH%/pokedex/products; if [ -d /tmp/tb_data_$$$$ ]; then mv /tmp/tb_data_$$$$ %REMOTE_PATH%/twitter-bot/data; fi; if [ -d /tmp/pd_data_$$$$ ]; then mv /tmp/pd_data_$$$$ %REMOTE_PATH%/pokedex/products/data; fi"
     if not "%SSH_KEY_FILE%" == "" (
         ssh -i "%SSH_KEY_FILE%" -p %SSH_PORT% %SSH_USER%@%SSH_HOST% "!PRESERVE_CMD!"
     ) else (
@@ -337,6 +375,16 @@ if exist ".output\public\twitter-bot\.env" (
     )
 )
 
+REM Upload products API .env (dotfile inside subdirectory)
+if exist ".output\public\pokedex\products\.env" (
+    echo Uploading pokedex\products\.env...
+    if not "%SSH_KEY_FILE%" == "" (
+        scp -i "%SSH_KEY_FILE%" -P %SSH_PORT% ".output\public\pokedex\products\.env" "%SSH_USER%@%SSH_HOST%:%REMOTE_PATH%/pokedex/products/"
+    ) else (
+        scp -P %SSH_PORT% ".output\public\pokedex\products\.env" "%SSH_USER%@%SSH_HOST%:%REMOTE_PATH%/pokedex/products/"
+    )
+)
+
 :UPLOAD_DONE
 echo.
 echo ====================================
@@ -349,12 +397,14 @@ echo Process time: %date% %time%
 echo.
 
 REM Check site after upload
-echo Check site functionality? (Y/N)
-set /p "OPEN_SITE="
-if /i "!OPEN_SITE!" == "Y" (
-    start https://%SSH_HOST%/pokedex-online/
-)
+if not defined AUTO_MODE (
+    echo Check site functionality? ^(Y/N^)
+    set /p "OPEN_SITE="
+    if /i "!OPEN_SITE!" == "Y" (
+        start https://%SSH_HOST%/pokedex-online/
+    )
 
-echo.
-echo Process completed. Press any key to continue.
-pause >nul
+    echo.
+    echo Process completed. Press any key to continue.
+    pause >nul
+)

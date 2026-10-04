@@ -126,6 +126,24 @@ interface LanguageOption {
   aliases?: string[]
 }
 
+interface ProductItem {
+  id: number
+  name: string
+  url: string
+  image_url: string | null
+  price: number | null
+  release_date: string | null
+  status_label: string | null
+  category: string | null
+  pokemon: number[]
+}
+
+interface ProductListResponse {
+  success: boolean
+  products?: ProductItem[]
+  error?: string
+}
+
 interface TagItem {
   id?: number
   tag: string
@@ -952,6 +970,9 @@ const swipeStartY = ref<number | null>(null)
 const tagUiLanguage = computed<'jpn' | 'eng'>(() => normalizeLanguageKey(selectedLanguage.value) === 'eng' ? 'eng' : 'jpn')
 const isTagDialogVisible = ref(false)
 const existingTags = ref<TagItem[]>([])
+const products = ref<ProductItem[]>([])
+const isLoadingProducts = ref(false)
+const productsError = ref(false)
 const newTagInput = ref('')
 const tagInputError = ref('')
 const isSubmittingTag = ref(false)
@@ -980,6 +1001,22 @@ const resolveTagApiEndpoint = (): string => {
 }
 
 const tagApiEndpoint = computed(() => resolveTagApiEndpoint())
+
+const resolveProductApiEndpoint = (): string => {
+  const configuredBase = String(runtimeConfig.public?.pokedexApiBaseURL ?? '').trim()
+  if (configuredBase) {
+    if (configuredBase.endsWith('.php')) {
+      return `${getParentPath(configuredBase)}/products/products.php`
+    }
+
+    return joinUrlPath(configuredBase, 'products/products.php')
+  }
+
+  return `${normalizeBaseURL(runtimeConfig.public?.appBaseURL)}pokedex/products/products.php`
+}
+
+const productApiEndpoint = computed(() => resolveProductApiEndpoint())
+const productNationalDex = computed(() => activeEntry.value?.nationalDex ?? pageData.value.dex ?? 0)
 
 const showTagSnackbar = (message: string, tone: 'success' | 'error' = 'success') => {
   if (tagSnackbarTimer) {
@@ -1112,6 +1149,15 @@ const tagsForDisplay = computed<TagItem[]>(() => scopedExistingTags.value
   .filter((tagItem) => tagItem.status !== 'rejected')
   .filter((tagItem) => tagItem.bad_count < badThreshold.value))
 
+const TAG_PREVIEW_LIMIT = 2
+const showAllTags = ref(false)
+const hiddenTagCount = computed(() => Math.max(tagsForDisplay.value.length - TAG_PREVIEW_LIMIT, 0))
+const visibleTags = computed(() => (
+  showAllTags.value
+    ? tagsForDisplay.value
+    : tagsForDisplay.value.slice(0, TAG_PREVIEW_LIMIT)
+))
+
 const validateTagInput = () => {
   const trimmed = newTagInput.value.trim()
   if (!trimmed) {
@@ -1197,6 +1243,38 @@ const fetchExistingTags = async () => {
   }
   finally {
     isLoadingTags.value = false
+  }
+}
+
+const fetchProducts = async () => {
+  const no = productNationalDex.value
+  if (!import.meta.client) {
+    return
+  }
+  if (!no) {
+    products.value = []
+    productsError.value = false
+    isLoadingProducts.value = false
+    return
+  }
+
+  isLoadingProducts.value = true
+  productsError.value = false
+  try {
+    const response = await fetch(`${productApiEndpoint.value}?no=${no}`)
+    const payload = await response.json() as ProductListResponse
+    if (!response.ok || !payload.success) {
+      throw new Error(payload.error || '商品情報の取得に失敗しました。')
+    }
+    products.value = payload.products ?? []
+  }
+  catch (error) {
+    console.error('Failed to fetch products:', error)
+    products.value = []
+    productsError.value = true
+  }
+  finally {
+    isLoadingProducts.value = false
   }
 }
 
@@ -1435,6 +1513,7 @@ watch(() => pokemon.value?.id, () => {
   hiddenVersionIcons.value = {}
   expandedGlobalDescriptionKeys.value = []
   showAllDescriptions.value = false
+  showAllTags.value = false
 })
 
 watch(displayedDescriptionGroups, (groups) => {
@@ -1457,12 +1536,21 @@ watch(
   }
 )
 
+watch(productNationalDex, () => {
+  if (!import.meta.client) {
+    return
+  }
+
+  void fetchProducts()
+})
+
 onMounted(() => {
   hydrate()
   if (pokemon.value) {
     recordHistory(pokemon.value, currentDetailPath.value)
   }
   void fetchExistingTags()
+  void fetchProducts()
 })
 
 watch(
@@ -2025,7 +2113,7 @@ useJsonLd(() => {
         </p>
         <div v-else class="tag-chip-list">
           <article
-            v-for="tagItem in tagsForDisplay"
+            v-for="tagItem in visibleTags"
             :key="getTagScopeKey(tagItem)"
             class="tag-chip"
           >
@@ -2055,6 +2143,74 @@ useJsonLd(() => {
             </button>
           </article>
         </div>
+        <button
+          v-if="hiddenTagCount > 0 || showAllTags"
+          type="button"
+          class="button-primary button-primary--secondary tag-section__toggle"
+          :aria-expanded="showAllTags"
+          @click="showAllTags = !showAllTags"
+        >
+          {{ showAllTags ? t('pokemon.hideExtraTags') : t('pokemon.showAllTags', { count: hiddenTagCount }) }}
+        </button>
+      </section>
+
+      <section class="surface section-card product-section">
+        <div class="section-header">
+          <div>
+            <span class="eyebrow">{{ t('pokemon.products') }}</span>
+            <h2 class="section-title">{{ t('pokemon.products') }}</h2>
+          </div>
+        </div>
+        <p class="product-section__subtitle">
+          {{ t('pokemon.productsSubtitle') }}
+        </p>
+        <p v-if="isLoadingProducts" class="product-section__status">
+          {{ t('common.loading') }}...
+        </p>
+        <p v-else-if="productsError" class="product-section__status">
+          {{ t('pokemon.productsFailed') }}
+        </p>
+        <p v-else-if="products.length === 0" class="product-section__status">
+          {{ t('pokemon.noProducts') }}
+        </p>
+        <div v-else class="product-grid">
+          <a
+            v-for="product in products"
+            :key="product.id"
+            :href="product.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="product-card"
+          >
+            <div class="product-card__image-wrap">
+              <img
+                v-if="product.image_url"
+                class="product-card__image"
+                :src="product.image_url"
+                :alt="product.name"
+                loading="lazy"
+              >
+              <div v-else class="product-card__placeholder" aria-hidden="true" />
+              <span v-if="product.status_label" class="product-card__status">
+                {{ product.status_label }}
+              </span>
+            </div>
+            <div class="product-card__content">
+              <h3 class="product-card__name">
+                {{ product.name }}
+              </h3>
+              <p v-if="product.price !== null" class="product-card__price">
+                ¥{{ product.price.toLocaleString('ja-JP') }}
+              </p>
+              <p v-if="product.release_date" class="product-card__release">
+                {{ t('pokemon.productsReleaseDate') }}: {{ product.release_date }}
+              </p>
+            </div>
+          </a>
+        </div>
+        <p class="product-section__notice">
+          {{ t('pokemon.productsNotice') }}
+        </p>
       </section>
 
       <AdSenseCard
@@ -2561,6 +2717,103 @@ useJsonLd(() => {
   gap: 1rem;
 }
 
+.product-section {
+  display: grid;
+  gap: 1rem;
+}
+
+.product-section__subtitle,
+.product-section__status,
+.product-section__notice {
+  margin: 0;
+  color: var(--text-soft);
+}
+
+.product-section__notice {
+  font-size: 0.82rem;
+}
+
+.product-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 200px));
+  justify-content: start;
+  gap: 1rem;
+}
+
+.product-card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text);
+  text-decoration: none;
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+
+.product-card:hover {
+  transform: translateY(-2px);
+  border-color: var(--primary);
+}
+
+.product-card__image-wrap {
+  position: relative;
+  aspect-ratio: 1;
+  background: var(--tint-soft);
+}
+
+.product-card__image,
+.product-card__placeholder {
+  display: block;
+  width: 100%;
+  height: 100%;
+  aspect-ratio: 1;
+  object-fit: contain;
+}
+
+.product-card__placeholder {
+  background: linear-gradient(135deg, var(--tint-soft), var(--surface));
+}
+
+.product-card__status {
+  position: absolute;
+  left: 0.5rem;
+  bottom: 0.5rem;
+  max-width: calc(100% - 1rem);
+  padding: 0.25rem 0.5rem;
+  background: var(--primary-strong);
+  color: white;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+
+.product-card__content {
+  display: grid;
+  gap: 0.45rem;
+  padding: 0.75rem;
+}
+
+.product-card__name,
+.product-card__price,
+.product-card__release {
+  margin: 0;
+}
+
+.product-card__name {
+  font-size: 0.95rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.product-card__price {
+  color: var(--primary-strong);
+  font-weight: 700;
+}
+
+.product-card__release {
+  color: var(--text-soft);
+  font-size: 0.8rem;
+}
+
 .tag-section__header {
   align-items: center;
 }
@@ -2579,6 +2832,10 @@ useJsonLd(() => {
   display: flex;
   flex-wrap: wrap;
   gap: 0.75rem;
+}
+
+.tag-section__toggle {
+  justify-self: start;
 }
 
 .tag-chip {

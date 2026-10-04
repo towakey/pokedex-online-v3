@@ -601,6 +601,28 @@ const UI_LABELS: Record<string, LanguageMap> = {
     chs: "收起图鉴说明",
     cht: "收合圖鑑說明"
   },
+  'pokemon.showAllTags': {
+    jpn: "残り{count}件のタグを表示",
+    eng: "Show {count} more tags",
+    fra: "Afficher {count} tags de plus",
+    ita: "Mostra altri {count} tag",
+    ger: "{count} weitere Tags anzeigen",
+    spa: "Mostrar {count} etiquetas más",
+    kor: "태그 {count}개 더 보기",
+    chs: "显示其余 {count} 个标签",
+    cht: "顯示其餘 {count} 個標籤"
+  },
+  'pokemon.hideExtraTags': {
+    jpn: "タグを折りたたむ",
+    eng: "Show fewer tags",
+    fra: "Afficher moins de tags",
+    ita: "Mostra meno tag",
+    ger: "Weniger Tags anzeigen",
+    spa: "Mostrar menos etiquetas",
+    kor: "태그 접기",
+    chs: "收起标签",
+    cht: "收合標籤"
+  },
   'pokedex.title': {
     jpn: "ポケモン図鑑",
     eng: "Pokédex",
@@ -963,6 +985,72 @@ const UI_LABELS: Record<string, LanguageMap> = {
     kor: "태그",
     chs: "标签",
     cht: "標籤"
+  },
+  'pokemon.products': {
+    jpn: "グッズ情報",
+    eng: "Merchandise",
+    fra: "Produits dérivés",
+    ita: "Articoli",
+    ger: "Merchandise",
+    spa: "Productos",
+    kor: "굿즈 정보",
+    chs: "周边商品",
+    cht: "周邊商品"
+  },
+  'pokemon.productsSubtitle': {
+    jpn: "ポケモンセンターオンラインの新商品をご紹介します。",
+    eng: "Discover new items from Pokémon Center Online.",
+    fra: "Découvrez les nouveautés du Pokémon Center Online.",
+    ita: "Scopri le novità del Pokémon Center Online.",
+    ger: "Entdecken Sie die Neuheiten im Pokémon Center Online.",
+    spa: "Descubre las novedades de Pokémon Center Online.",
+    kor: "포켓몬센터 온라인의 신상품을 소개합니다.",
+    chs: "为您介绍宝可梦中心在线商城的新商品。",
+    cht: "為您介紹寶可夢中心線上商城的新商品。"
+  },
+  'pokemon.noProducts': {
+    jpn: "現在表示できる商品はありません。",
+    eng: "No products are currently available.",
+    fra: "Aucun produit n'est disponible pour le moment.",
+    ita: "Nessun prodotto è attualmente disponibile.",
+    ger: "Derzeit sind keine Produkte verfügbar.",
+    spa: "No hay productos disponibles actualmente.",
+    kor: "현재 표시할 수 있는 상품이 없습니다.",
+    chs: "目前没有可显示的商品。",
+    cht: "目前沒有可顯示的商品。"
+  },
+  'pokemon.productsFailed': {
+    jpn: "商品情報の取得に失敗しました。",
+    eng: "Failed to load product information.",
+    fra: "Échec du chargement des informations sur les produits.",
+    ita: "Impossibile caricare le informazioni sui prodotti.",
+    ger: "Produktinformationen konnten nicht geladen werden.",
+    spa: "No se pudo cargar la información de los productos.",
+    kor: "상품 정보를 불러오지 못했습니다.",
+    chs: "商品信息加载失败。",
+    cht: "商品資訊載入失敗。"
+  },
+  'pokemon.productsNotice': {
+    jpn: "価格・在庫状況は公式サイトでご確認ください。",
+    eng: "Check the official site for current prices and availability.",
+    fra: "Consultez le site officiel pour connaître les prix et la disponibilité.",
+    ita: "Controlla il sito ufficiale per prezzi e disponibilità aggiornati.",
+    ger: "Aktuelle Preise und Verfügbarkeit finden Sie auf der offiziellen Website.",
+    spa: "Consulta el sitio oficial para conocer los precios y la disponibilidad actuales.",
+    kor: "가격과 재고 상황은 공식 사이트에서 확인해 주세요.",
+    chs: "价格和库存情况请以官方网站为准。",
+    cht: "價格和庫存狀況請以官方網站為準。"
+  },
+  'pokemon.productsReleaseDate': {
+    jpn: "発売日",
+    eng: "Release date",
+    fra: "Date de sortie",
+    ita: "Data di uscita",
+    ger: "Erscheinungsdatum",
+    spa: "Fecha de lanzamiento",
+    kor: "발매일",
+    chs: "发售日期",
+    cht: "發售日期"
   },
   'pokemon.suggestTag': {
     jpn: "タグを提案",
