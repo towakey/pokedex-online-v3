@@ -8,6 +8,7 @@ interface RegionRouteEntry {
 
 const generatedDataDir = resolve(process.cwd(), 'generated-data')
 const regionDir = resolve(generatedDataDir, 'region')
+const wazaDir = resolve(generatedDataDir, 'waza')
 const lastmodManifestPath = resolve(generatedDataDir, 'lastmod.json')
 
 const formatDexId = (dex: number) => String(dex).padStart(4, '0')
@@ -49,6 +50,18 @@ export const buildCanonicalRouteEntries = (): CanonicalRouteEntry[] => {
 
   for (const staticRoute of ['/', '/pokedex', '/search', '/search/tag', '/gallery']) {
     routeMap.set(staticRoute, siteLastmod)
+  }
+
+  if (existsSync(wazaDir)) {
+    for (const file of readdirSync(wazaDir)) {
+      if (!file.endsWith('.json')) {
+        continue
+      }
+
+      const slug = file.replace(/\.json$/, '')
+      const wazaLastmod = manifest[`waza/${file}`]?.lastmod
+      routeMap.set(`/pokedex/${slug}/waza`, maxDate(wazaLastmod, routeMap.get(`/pokedex/${slug}`), siteLastmod))
+    }
   }
 
   if (existsSync(regionDir)) {

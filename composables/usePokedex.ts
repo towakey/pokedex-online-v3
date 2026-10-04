@@ -35,6 +35,7 @@ export interface PokemonDetail extends SearchIndexItem {
   stats?: Partial<Record<'hp' | 'attack' | 'defense' | 'special_attack' | 'special_defense' | 'speed', number>>
   forms?: LocalizedTextMap
   classifications?: LocalizedTextMap
+  movesets?: PokemonMoveset[]
   evolutions?: Array<{
     version: string
     versionLabel: string
@@ -55,10 +56,56 @@ export interface RegionEntry {
   national_dex: number
 }
 
+export interface MoveDetail {
+  name: string
+  type?: string
+  category?: string
+  power?: string
+  accuracy?: string
+  pp?: string
+  description?: string
+}
+
+export interface MoveMachine extends MoveDetail {
+  machine: string
+}
+
+export interface PokemonMoveGroup {
+  key: string
+  label: string
+  versionCode?: string
+  initial: MoveDetail[]
+  levelUp: Array<{ level: number; moves: MoveDetail[] }>
+  evolution: MoveDetail[]
+  reminder: MoveDetail[]
+  machines: MoveMachine[]
+  other?: Array<{ label: string; moves: MoveDetail[] }>
+}
+
+export interface PokemonMoveset {
+  regionSlug: string
+  regionLabel: string
+  version: string
+  versionLabel: string
+  groups: PokemonMoveGroup[]
+}
+
+export interface RegionMovesData {
+  regionSlug: string
+  regionLabel: string
+  version: string
+  versionLabel: string
+  groups: Array<{ key: string; label: string; versionCode?: string }>
+  moves: Record<string, MoveDetail>
+  machines: Array<{ key: string; name: string }>
+  learnedBy: Record<string, Record<string, string[]>>
+}
+
 export interface RegionMeta {
   slug: string
   label: string
   count: number
+  hasMoves?: boolean
 }
 
 const GLOBAL_REGION_SLUG = 'global'
@@ -158,6 +205,7 @@ export const usePokedex = () => {
   const loadIndex = () => loadGeneratedData<PokemonIndexItem[]>('index.json')
   const loadSearchIndex = () => loadGeneratedData<SearchIndexItem[]>('search-index.json')
   const loadPokemon = (id: number | string) => loadGeneratedData<PokemonDetail>(`pokemon/${formatPokemonRouteId(id)}.json`)
+  const loadRegionMoves = (region: string) => loadGeneratedData<RegionMovesData>(`waza/${normalizeRegionSlug(region)}.json`)
   const loadRegion = (region: string) => {
     const normalizedRegion = normalizeRegionSlug(region)
     const candidates = normalizedRegion === GLOBAL_REGION_SLUG
@@ -214,6 +262,7 @@ export const usePokedex = () => {
     loadIndex,
     loadSearchIndex,
     loadPokemon,
+    loadRegionMoves,
     loadRegion,
     loadRegions,
     formatPokedexTitle,

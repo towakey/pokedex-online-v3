@@ -372,6 +372,13 @@ useJsonLd(() => {
         <p class="hero__description">
           {{ t('pokedex.displaying', { count: pageData.meta.count.toLocaleString() }) }}
         </p>
+        <NuxtLink
+          v-if="pageData.meta.hasMoves"
+          :to="`${pokedexBasePath}/${pageData.meta.slug}/waza`"
+          class="pill-link"
+        >
+          {{ t('pokemon.moveList') }}
+        </NuxtLink>
       </div>
     </section>
 

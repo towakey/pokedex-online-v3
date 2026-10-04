@@ -7,6 +7,7 @@ const siteUrl = (process.env.NUXT_PUBLIC_SITE_URL || '').replace(/\/+$/, '')
 const generatedDataDir = resolve(process.cwd(), 'generated-data')
 const pokemonDir = resolve(generatedDataDir, 'pokemon')
 const regionDir = resolve(generatedDataDir, 'region')
+const wazaDir = resolve(generatedDataDir, 'waza')
 const prerenderConcurrencyValue = process.env.NUXT_PRERENDER_CONCURRENCY
 const prerenderConcurrency = prerenderConcurrencyValue ? Number(prerenderConcurrencyValue) : undefined
 const prerenderCrawlLinks = process.env.NUXT_PRERENDER_CRAWL_LINKS === 'true'
@@ -43,6 +44,14 @@ const createPrerenderRoutes = () => {
   const sampleLimit = prerenderSample !== undefined && Number.isFinite(prerenderSample) && prerenderSample > 0
     ? prerenderSample
     : undefined
+
+  if (existsSync(wazaDir)) {
+    for (const file of readdirSync(wazaDir)) {
+      if (file.endsWith('.json')) {
+        routes.add(`/pokedex/${normalizeRegionSlug(file.replace(/\.json$/, ''))}/waza`)
+      }
+    }
+  }
 
   if (existsSync(regionDir)) {
     for (const file of readdirSync(regionDir)) {

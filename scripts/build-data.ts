@@ -32,6 +32,7 @@ interface PokemonRecord {
   stats?: Partial<Record<StatKey, number>>
   forms?: Record<string, string>
   evolutions?: EvolutionRecord[]
+  movesets?: PokemonMovesetRecord[]
 }
 
 interface EvolutionRecord {
@@ -45,6 +46,51 @@ interface EvolutionRecord {
   form?: string
   name: string
   names?: Record<string, string>
+}
+
+interface MoveDetailRecord {
+  name: string
+  type?: string
+  category?: string
+  power?: string
+  accuracy?: string
+  pp?: string
+  description?: string
+}
+
+interface MoveMachineRecord extends MoveDetailRecord {
+  machine: string
+}
+
+interface PokemonMoveGroupRecord {
+  key: string
+  label: string
+  versionCode?: string
+  initial: MoveDetailRecord[]
+  levelUp: Array<{ level: number; moves: MoveDetailRecord[] }>
+  evolution: MoveDetailRecord[]
+  reminder: MoveDetailRecord[]
+  machines: MoveMachineRecord[]
+  other: Array<{ label: string; moves: MoveDetailRecord[] }>
+}
+
+interface PokemonMovesetRecord {
+  regionSlug: string
+  regionLabel: string
+  version: string
+  versionLabel: string
+  groups: PokemonMoveGroupRecord[]
+}
+
+interface RegionMovesFileRecord {
+  regionSlug: string
+  regionLabel: string
+  version: string
+  versionLabel: string
+  groups: Array<{ key: string; label: string; versionCode?: string }>
+  moves: Record<string, MoveDetailRecord>
+  machines: Array<{ key: string; name: string }>
+  learnedBy: Record<string, Record<string, string[]>>
 }
 
 interface IndexRecord {
@@ -70,6 +116,7 @@ interface RegionMeta {
   slug: string
   label: string
   count: number
+  hasMoves?: boolean
 }
 
 const REGION_LABELS: Record<string, string> = {
@@ -96,6 +143,7 @@ const sourceDir = resolve(rootDir, 'pokedex')
 const outputDir = resolve(rootDir, 'generated-data')
 const pokemonOutputDir = resolve(outputDir, 'pokemon')
 const regionOutputDir = resolve(outputDir, 'region')
+const wazaOutputDir = resolve(outputDir, 'waza')
 const sourcePokedexDir = resolve(sourceDir, 'pokedex')
 const sourceConfigPath = resolve(sourceDir, 'config', 'pokedex_config.json')
 const sourceGlobalPokedexPath = resolve(sourcePokedexDir, 'pokedex.json')
@@ -916,8 +964,192 @@ const mergePokemonRecord = (current: PokemonRecord | undefined, incoming: Pokemo
     globalDescriptions: current.globalDescriptions ?? incoming.globalDescriptions,
     stats: current.stats || incoming.stats ? { ...(current.stats ?? {}), ...(incoming.stats ?? {}) } : undefined,
     forms: current.forms || incoming.forms ? { ...(current.forms ?? {}), ...(incoming.forms ?? {}) } : undefined,
-    evolutions: current.evolutions || incoming.evolutions ? [...(current.evolutions ?? []), ...(incoming.evolutions ?? [])] : undefined
+    evolutions: current.evolutions || incoming.evolutions ? [...(current.evolutions ?? []), ...(incoming.evolutions ?? [])] : undefined,
+    movesets: current.movesets || incoming.movesets ? [...(current.movesets ?? []), ...(incoming.movesets ?? [])] : undefined
   }
+}
+
+const WAZA_FORM_META_KEYS = new Set(['form', 'region', 'mega_evolution', 'gigantamax'])
+
+const normalizeWazaFormValue = (value: JsonValue | undefined): string => {
+  return String(toStringValue(value) ?? '').normalize('NFKC').trim()
+}
+
+const createWazaFormKey = (record: JsonRecord): string => {
+  return [
+    normalizeWazaFormValue(record.form),
+    normalizeWazaFormValue(record.region),
+    normalizeWazaFormValue(record.mega_evolution),
+    normalizeWazaFormValue(record.gigantamax)
+  ].join('|')
+}
+
+interface MoveLookup {
+  canonical: Map<string, JsonRecord>
+  normalized: Map<string, JsonRecord>
+}
+
+const createMoveDictionary = (wazaListSource: JsonRecord | undefined): MoveLookup => {
+  const canonical = new Map<string, JsonRecord>()
+  const normalized = new Map<string, JsonRecord>()
+  const lookup: MoveLookup = { canonical, normalized }
+
+  if (!wazaListSource || !isRecord(wazaListSource.waza_list)) {
+    return lookup
+  }
+
+  const wazaListMap = wazaListSource.waza_list
+  const gameVersion = toStringValue(wazaListSource.game_version)
+
+  for (const [moveName, detailValue] of Object.entries(wazaListMap)) {
+    if (gameVersion && moveName === gameVersion) {
+      continue
+    }
+
+    if (isRecord(detailValue) && (detailValue.type !== undefined || detailValue.power !== undefined || detailValue.pp !== undefined)) {
+      canonical.set(moveName, detailValue)
+    }
+  }
+
+  if (gameVersion) {
+    const versionMap = toRecordMap(wazaListMap[gameVersion])
+    for (const [moveName, detailValue] of Object.entries(versionMap)) {
+      if (isRecord(detailValue)) {
+        canonical.set(moveName, detailValue)
+      }
+    }
+  }
+
+  // 全角/半角ゆれ（例: １０まんボルト ↔ 10まんボルト）を NFKC 正規化キーで補完
+  for (const [moveName, detailValue] of canonical.entries()) {
+    const normalizedName = moveName.normalize('NFKC').trim()
+    if (normalizedName && normalizedName !== moveName && !canonical.has(normalizedName) && !normalized.has(normalizedName)) {
+      normalized.set(normalizedName, detailValue)
+    }
+  }
+
+  return lookup
+}
+
+const resolveMoveRecord = (name: string, dictionary: MoveLookup): JsonRecord | undefined => {
+  return dictionary.canonical.get(name) ?? dictionary.normalized.get(name.normalize('NFKC').trim())
+}
+
+const resolveCanonicalMoveName = (name: string, dictionary: MoveLookup): string => {
+  if (dictionary.canonical.has(name)) {
+    return name
+  }
+
+  const normalizedName = name.normalize('NFKC').trim()
+  if (dictionary.normalized.has(normalizedName)) {
+    for (const [canonicalName, detailValue] of dictionary.canonical.entries()) {
+      if (canonicalName.normalize('NFKC').trim() === normalizedName) {
+        return canonicalName
+      }
+    }
+  }
+
+  return name
+}
+
+const createMoveDetail = (name: string, dictionary: MoveLookup): MoveDetailRecord => {
+  const detail = resolveMoveRecord(name, dictionary)
+
+  return {
+    name,
+    type: toStringValue(detail?.type),
+    category: toStringValue(detail?.category),
+    power: toStringValue(detail?.power),
+    accuracy: toStringValue(detail?.accuracy),
+    pp: toStringValue(detail?.pp),
+    description: toStringValue(detail?.description)
+  }
+}
+
+const createMoveGroup = (
+  formEntry: JsonRecord,
+  groupMeta: { key: string; label: string; versionCode?: string },
+  moveDictionary: MoveLookup,
+  machineMap: Map<string, string>
+): PokemonMoveGroupRecord => {
+  const initial: MoveDetailRecord[] = []
+  const reminder: MoveDetailRecord[] = []
+  const evolution: MoveDetailRecord[] = []
+  const levelUp: Array<{ level: number; moves: MoveDetailRecord[] }> = []
+  const machines: MoveMachineRecord[] = []
+  const other: Array<{ label: string; moves: MoveDetailRecord[] }> = []
+
+  for (const [learnKey, namesValue] of Object.entries(formEntry)) {
+    if (WAZA_FORM_META_KEYS.has(learnKey) || !Array.isArray(namesValue)) {
+      continue
+    }
+
+    const names = uniqueStrings(namesValue.map((value) => (typeof value === 'string' ? value : undefined)))
+
+    if (learnKey === 'わざマシン') {
+      for (const machineKey of names) {
+        const moveName = machineMap.get(machineKey)
+        machines.push({
+          ...createMoveDetail(moveName ?? machineKey, moveDictionary),
+          machine: machineKey
+        })
+      }
+      continue
+    }
+
+    if (names.length === 0) {
+      continue
+    }
+
+    const moves = names.map((moveName) => createMoveDetail(moveName, moveDictionary))
+
+    if (learnKey === '') {
+      initial.push(...moves)
+      continue
+    }
+
+    if (learnKey === '思い出し') {
+      reminder.push(...moves)
+      continue
+    }
+
+    if (learnKey === '進化時') {
+      evolution.push(...moves)
+      continue
+    }
+
+    if (/^\d+$/.test(learnKey)) {
+      levelUp.push({ level: Number.parseInt(learnKey, 10), moves })
+      continue
+    }
+
+    other.push({ label: learnKey, moves })
+  }
+
+  levelUp.sort((left, right) => left.level - right.level)
+
+  return {
+    key: groupMeta.key,
+    label: groupMeta.label,
+    versionCode: groupMeta.versionCode,
+    initial,
+    levelUp,
+    evolution,
+    reminder,
+    machines,
+    other
+  }
+}
+
+const collectMoveGroupNames = (group: PokemonMoveGroupRecord): string[] => {
+  return uniqueStrings([
+    ...group.initial.map((move) => move.name),
+    ...group.levelUp.flatMap((entry) => entry.moves.map((move) => move.name)),
+    ...group.evolution.map((move) => move.name),
+    ...group.reminder.map((move) => move.name),
+    ...group.machines.map((move) => move.name),
+    ...group.other.flatMap((entry) => entry.moves.map((move) => move.name))
+  ])
 }
 
 const createRegionLabel = (slug: string): string => {
@@ -978,6 +1210,7 @@ previousLastmodManifest = loadPreviousLastmodManifest()
 rmSync(outputDir, { recursive: true, force: true })
 mkdirSync(pokemonOutputDir, { recursive: true })
 mkdirSync(regionOutputDir, { recursive: true })
+mkdirSync(wazaOutputDir, { recursive: true })
 
 const globalSource = readJsonFile<JsonRecord>(sourceGlobalPokedexPath)
 const configSource = readJsonFile<JsonRecord>(sourceConfigPath) as JsonRecord & RegionConfigFile
@@ -999,6 +1232,7 @@ if (Object.keys(globalPokedex).length === 0) {
 
 const pokemonMap = new Map<string, PokemonRecord>()
 const regionMap = new Map<string, RegionEntry[]>()
+const regionsWithMoves = new Set<string>()
 const primaryGlobalIdByDex = new Map<number, string>()
 const globalEntries: RegionEntry[] = []
 
@@ -1181,11 +1415,223 @@ for (const [slug, regionConfig] of configuredRegionEntries) {
     }
   }
 
+  // わざデータ (waza.json / waza_list.json / waza_machine.json) の正規化
+  const versionDirectory = dirname(versionFilePath)
+  const wazaSourcePath = resolve(versionDirectory, 'waza.json')
+  const wazaListPath = resolve(versionDirectory, 'waza_list.json')
+  const wazaMachinePath = resolve(versionDirectory, 'waza_machine.json')
+
+  if (existsSync(wazaSourcePath) && existsSync(wazaListPath)) {
+    const wazaSource = readJsonFile<JsonRecord>(wazaSourcePath)
+    const wazaListSource = readJsonFile<JsonRecord>(wazaListPath)
+    const wazaMachineSource = existsSync(wazaMachinePath) ? readJsonFile<JsonRecord>(wazaMachinePath) : undefined
+    const moveDictionary = createMoveDictionary(wazaListSource)
+    const machineMap = new Map<string, string>()
+
+    if (wazaMachineSource && isRecord(wazaMachineSource.waza_machine)) {
+      for (const [machineKey, moveNameValue] of Object.entries(wazaMachineSource.waza_machine)) {
+        const moveName = toStringValue(moveNameValue)
+        if (moveName) {
+          machineMap.set(machineKey, moveName)
+          if (!resolveMoveRecord(moveName, moveDictionary)) {
+            moveDictionary.canonical.set(moveName, { name: moveName })
+          }
+        }
+      }
+    }
+
+    const wazaVersionLabel = uniqueStrings([...versionDisplayMap.values()]
+      .filter((entry) => normalizeVersionNameKey(entry.versionGroup ?? '') === normalizeVersionNameKey(regionConfig.version_key))
+      .sort((left, right) => left.order - right.order)
+      .map((entry) => entry.label)).join('・') || normalizeVersionLabel(regionConfig.version_key)
+    const wazaRegionLabel = regionConfig.label_jpn || regionConfig.display_jpn || createRegionLabel(slug)
+    const versionNameMeta = new Map<string, { code: string; label: string }>()
+
+    for (const [code, entry] of versionDisplayMap.entries()) {
+      if (normalizeVersionNameKey(entry.versionGroup ?? '') !== normalizeVersionNameKey(regionConfig.version_key)) {
+        continue
+      }
+
+      const nameKey = normalizeVersionNameKey(entry.version)
+      if (nameKey && !versionNameMeta.has(nameKey)) {
+        versionNameMeta.set(nameKey, { code, label: entry.label })
+      }
+    }
+
+    const siblingRegionSlugs = configuredRegionEntries
+      .filter(([, siblingConfig]) => siblingConfig.version_key === regionConfig.version_key)
+      .map(([siblingSlug]) => siblingSlug)
+    const regionMovesGroups: Array<{ key: string; label: string; versionCode?: string; order: number }> = []
+    const learnedByMap = new Map<string, Map<string, Set<string>>>()
+
+    if (isRecord(wazaSource.waza)) {
+      for (const [wazaKey, wazaEntriesValue] of Object.entries(wazaSource.waza)) {
+        if (!Array.isArray(wazaEntriesValue)) {
+          continue
+        }
+
+        const isRegionKey = siblingRegionSlugs.includes(wazaKey)
+        const targetSlugs = isRegionKey ? [wazaKey] : siblingRegionSlugs
+
+        if (!targetSlugs.includes(slug)) {
+          continue
+        }
+
+        const versionMeta = isRegionKey ? undefined : versionNameMeta.get(normalizeVersionNameKey(wazaKey))
+        const groupMeta = {
+          key: wazaKey,
+          label: isRegionKey ? wazaVersionLabel : (versionMeta?.label ?? normalizeVersionLabel(wazaKey)),
+          versionCode: isRegionKey ? undefined : versionMeta?.code,
+          order: versionMeta?.code ? (versionDisplayMap.get(versionMeta.code)?.order ?? 1000) : 1000
+        }
+        regionMovesGroups.push(groupMeta)
+
+        const wazaEntryByDex = new Map<number, JsonRecord>()
+        for (const wazaEntryValue of wazaEntriesValue) {
+          if (!isRecord(wazaEntryValue)) {
+            continue
+          }
+
+          const localDexNumber = parsePokemonId(toStringValue(wazaEntryValue.no) ?? String(wazaEntryValue.no ?? ''))
+          if (localDexNumber && !wazaEntryByDex.has(localDexNumber)) {
+            wazaEntryByDex.set(localDexNumber, wazaEntryValue)
+          }
+        }
+
+        for (const [localDex, formsValue] of Object.entries(regionalEntriesMap)) {
+          const localDexNumber = parsePokemonId(localDex)
+          const wazaEntry = localDexNumber ? wazaEntryByDex.get(localDexNumber) : undefined
+
+          if (!wazaEntry || !Array.isArray(wazaEntry.form)) {
+            continue
+          }
+
+          const wazaForms = wazaEntry.form.filter((formValue): formValue is JsonRecord => isRecord(formValue))
+          if (wazaForms.length === 0) {
+            continue
+          }
+
+          const fallbackWazaForm = wazaForms.find((formValue) => createWazaFormKey(formValue) === '|||') ?? wazaForms[0]
+          const formMap = toRecordMap(formsValue)
+
+          for (const [pokemonId, pokemonEntry] of Object.entries(formMap)) {
+            const formKey = createWazaFormKey(pokemonEntry)
+            const matchedWazaForm = wazaForms.find((formValue) => createWazaFormKey(formValue) === formKey) ?? fallbackWazaForm
+            const moveGroup = createMoveGroup(matchedWazaForm, groupMeta, moveDictionary, machineMap)
+            const targetPokemon = pokemonMap.get(pokemonId)
+
+            if (!targetPokemon) {
+              continue
+            }
+
+            const movesets = targetPokemon.movesets ?? []
+            let moveset = movesets.find((entry) => entry.regionSlug === slug && entry.version === regionConfig.version_key)
+
+            if (!moveset) {
+              moveset = {
+                regionSlug: slug,
+                regionLabel: wazaRegionLabel,
+                version: regionConfig.version_key,
+                versionLabel: wazaVersionLabel,
+                groups: []
+              }
+              movesets.push(moveset)
+            }
+
+            moveset.groups.push(moveGroup)
+            targetPokemon.movesets = movesets
+
+            for (const moveName of collectMoveGroupNames(moveGroup)) {
+              const canonicalMoveName = resolveCanonicalMoveName(moveName, moveDictionary)
+              const groupMap = learnedByMap.get(canonicalMoveName) ?? new Map<string, Set<string>>()
+              if (!learnedByMap.has(canonicalMoveName)) {
+                learnedByMap.set(canonicalMoveName, groupMap)
+              }
+
+              const idSet = groupMap.get(wazaKey) ?? new Set<string>()
+              if (!groupMap.has(wazaKey)) {
+                groupMap.set(wazaKey, idSet)
+              }
+              idSet.add(pokemonId)
+            }
+          }
+        }
+      }
+    }
+
+    const dexOrderByPokemonId = new Map<string, number>()
+    for (const [localDex, formsValue] of Object.entries(regionalEntriesMap)) {
+      const localDexNumber = parsePokemonId(localDex)
+      if (!localDexNumber) {
+        continue
+      }
+
+      for (const pokemonId of Object.keys(toRecordMap(formsValue))) {
+        dexOrderByPokemonId.set(pokemonId, localDexNumber)
+      }
+    }
+
+    const regionMovesFile: RegionMovesFileRecord = {
+      regionSlug: slug,
+      regionLabel: wazaRegionLabel,
+      version: regionConfig.version_key,
+      versionLabel: wazaVersionLabel,
+      groups: regionMovesGroups
+        .sort((left, right) => left.order - right.order || left.key.localeCompare(right.key))
+        .map(({ key, label, versionCode }) => ({ key, label, versionCode })),
+      moves: Object.fromEntries(
+        [...moveDictionary.canonical.entries()].map(([moveName, detailValue]) => [
+          moveName,
+          {
+            name: moveName,
+            type: toStringValue(detailValue.type),
+            category: toStringValue(detailValue.category),
+            power: toStringValue(detailValue.power),
+            accuracy: toStringValue(detailValue.accuracy),
+            pp: toStringValue(detailValue.pp),
+            description: toStringValue(detailValue.description)
+          }
+        ])
+      ),
+      machines: [...machineMap.entries()]
+        .map(([key, name]) => ({ key, name }))
+        .sort((left, right) => (toNumberValue(left.key) ?? 0) - (toNumberValue(right.key) ?? 0) || left.key.localeCompare(right.key)),
+      learnedBy: Object.fromEntries(
+        [...learnedByMap.entries()].map(([moveName, groupMap]) => [
+          moveName,
+          Object.fromEntries(
+            [...groupMap.entries()].map(([groupKey, idSet]) => [
+              groupKey,
+              [...idSet].sort((left, right) => (dexOrderByPokemonId.get(left) ?? 99999) - (dexOrderByPokemonId.get(right) ?? 99999) || left.localeCompare(right))
+            ])
+          )
+        ])
+      )
+    }
+
+    writeJson(resolve(wazaOutputDir, `${slug}.json`), regionMovesFile as unknown as JsonValue)
+    regionsWithMoves.add(slug)
+  }
+
   regionMap.set(slug, deduped)
 }
 
 regionMap.set('global', globalEntries
   .sort((left, right) => left.dex - right.dex || left.pokemon_id.localeCompare(right.pokemon_id)))
+
+for (const pokemon of pokemonMap.values()) {
+  if (!pokemon.movesets) {
+    continue
+  }
+
+  for (const moveset of pokemon.movesets) {
+    moveset.groups.sort((left, right) => {
+      const leftOrder = left.versionCode ? (versionDisplayMap.get(left.versionCode)?.order ?? 1000) : 1000
+      const rightOrder = right.versionCode ? (versionDisplayMap.get(right.versionCode)?.order ?? 1000) : 1000
+      return leftOrder - rightOrder || left.key.localeCompare(right.key)
+    })
+  }
+}
 
 const pokemonRecords = [...pokemonMap.values()].sort((left, right) => left.dex - right.dex || left.id.localeCompare(right.id))
 const indexRecords: IndexRecord[] = pokemonRecords.map((pokemon) => ({
@@ -1215,7 +1661,8 @@ const regionMeta: RegionMeta[] = [
   ...configuredRegionEntries.map(([slug, regionConfig]) => ({
     slug,
     label: regionConfig.label_jpn || regionConfig.display_jpn || createRegionLabel(slug),
-    count: regionMap.get(slug)?.length ?? 0
+    count: regionMap.get(slug)?.length ?? 0,
+    hasMoves: regionsWithMoves.has(slug) ? true : undefined
   }))
 ]
 
