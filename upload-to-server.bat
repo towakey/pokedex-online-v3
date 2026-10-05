@@ -162,7 +162,7 @@ if exist ".output\public\.htaccess" (
 )
 
 REM Count files
-for /f %%i in ('dir /s /b ".output\public\*" ^| find /c /v ""') do set FILE_COUNT=%%i
+for /f %%i in ('dir /s /b ".output\public\*" ^| %SystemRoot%\System32\find.exe /c /v ""') do set FILE_COUNT=%%i
 echo Generated file count: !FILE_COUNT! files
 
 echo.

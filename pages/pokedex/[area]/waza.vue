@@ -192,7 +192,12 @@ const allTypes = computed(() =>
 
 const filteredMoves = computed(() => {
   const query = searchQuery.value
+  const groupKey = activeGroupKey.value
   return pageData.value.moves.filter((move) => {
+    const learnerGroupKeys = Object.keys(move.learnedByGroups)
+    const matchesGroup = learnerGroupKeys.length === 0
+      || !groupKey
+      || (move.learnedByGroups[groupKey]?.length ?? 0) > 0
     const matchesQuery = matchesSearchQuery(
       query,
       move.name,
@@ -204,7 +209,7 @@ const filteredMoves = computed(() => {
     const matchesTypes = selectedTypes.value.length === 0
       || (move.type ? selectedTypes.value.includes(move.type) : false)
 
-    return matchesQuery && matchesTypes
+    return matchesGroup && matchesQuery && matchesTypes
   })
 })
 
@@ -493,27 +498,33 @@ useJsonLd(() => {
       </section>
 
       <section v-if="machineCount > 0" class="surface section-card">
-        <div class="section-header">
-          <div>
-            <span class="eyebrow">{{ t('pokemon.moveMachines') }}</span>
-            <h2 class="section-title">{{ t('pokemon.moveMachines') }}</h2>
-          </div>
-          <p class="section-caption">
-            {{ t('common.count', { count: machineCount.toLocaleString() }) }}
-          </p>
-        </div>
-        <div class="waza-machine-grid">
-          <button
-            v-for="machine in machineList"
-            :key="machine.key"
-            type="button"
-            class="waza-machine-chip"
-            @click="searchQuery = machine.name"
+        <details class="waza-machines__details">
+          <summary
+            class="waza-machines__summary"
+            :data-open="t('common.open')"
+            :data-close="t('common.close')"
           >
-            <span class="waza-machine-chip__key">{{ machine.key.replace(/^わざマシン/, `${t('pokemon.moveMachine')} `) }}</span>
-            <span class="waza-machine-chip__name">{{ machine.name }}</span>
-          </button>
-        </div>
+            <div>
+              <span class="eyebrow">{{ t('pokemon.moveMachines') }}</span>
+              <h2 class="section-title">{{ t('pokemon.moveMachines') }}</h2>
+            </div>
+            <p class="waza-machines__summary-text">
+              {{ t('common.count', { count: machineCount.toLocaleString() }) }}
+            </p>
+          </summary>
+          <div class="waza-machine-grid">
+            <button
+              v-for="machine in machineList"
+              :key="machine.key"
+              type="button"
+              class="waza-machine-chip"
+              @click="searchQuery = machine.name"
+            >
+              <span class="waza-machine-chip__key">{{ machine.key.replace(/^わざマシン/, `${t('pokemon.moveMachine')} `) }}</span>
+              <span class="waza-machine-chip__name">{{ machine.name }}</span>
+            </button>
+          </div>
+        </details>
       </section>
     </template>
 
@@ -655,6 +666,53 @@ useJsonLd(() => {
   width: 24px;
   height: 24px;
   object-fit: contain;
+}
+
+.waza-machines__details {
+  display: grid;
+  gap: 1rem;
+}
+
+.waza-machines__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.waza-machines__summary::-webkit-details-marker {
+  display: none;
+}
+
+.waza-machines__summary::marker {
+  content: '';
+}
+
+.waza-machines__summary::after {
+  content: attr(data-open);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  padding: 0.35rem 0.75rem;
+  border-radius: 0;
+  background: var(--surface-soft);
+  color: var(--text-soft);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.waza-machines__details[open] .waza-machines__summary::after {
+  content: attr(data-close);
+}
+
+.waza-machines__summary-text {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.85rem;
+  font-weight: 700;
 }
 
 .waza-machine-grid {

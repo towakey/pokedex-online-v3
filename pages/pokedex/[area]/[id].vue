@@ -1046,13 +1046,32 @@ const createMoveSections = (group: PokemonMoveGroup): MoveSectionView[] => {
   return sections
 }
 
+const MOVE_REGION_FAMILY: Record<string, string> = {
+  kanto_frlg: 'kanto',
+  johto_hgss: 'johto',
+  hoenn_oras: 'hoenn',
+  sinnoh_bdsp: 'sinnoh',
+  unova_b2w2: 'unova_bw',
+  coast_kalos: 'central_kalos',
+  mountain_kalos: 'central_kalos',
+  alola_usum: 'alola_sm',
+  crown_tundra: 'galar',
+  isle_of_armor: 'galar',
+  hyperspace_lumiose: 'lumiose'
+}
+const getMoveRegionFamily = (slug: string) => {
+  const normalized = normalizeRegionSlug(slug)
+  return MOVE_REGION_FAMILY[normalized] ?? normalized
+}
+const areaMoveFamily = computed(() => getMoveRegionFamily(pageData.value.areaSlug))
+
 const displayedMovesets = computed<PokemonMoveset[]>(() => (pokemon.value?.movesets ?? [])
-  .filter((moveset) => isGlobalArea.value || normalizeRegionSlug(moveset.regionSlug) === pageData.value.areaSlug)
   .map((moveset) => ({
     ...moveset,
     groups: moveset.groups.filter((group) => group.initial.length + group.levelUp.length + group.evolution.length + group.reminder.length + group.machines.length + (group.other?.length ?? 0) > 0)
   }))
-  .filter((moveset) => moveset.groups.length > 0))
+  .filter((moveset) => moveset.groups.length > 0)
+  .filter((moveset) => isGlobalArea.value || getMoveRegionFamily(moveset.regionSlug) === areaMoveFamily.value))
 
 const selectedMoveGroupKeys = ref<Record<string, string>>({})
 const getActiveMoveGroup = (moveset: PokemonMoveset): PokemonMoveGroup | undefined => {
@@ -1089,8 +1108,9 @@ const toggleMoveRow = (key: string) => {
     ? expandedMoveRowKeys.value.filter((entry) => entry !== key)
     : [...expandedMoveRowKeys.value, key]
 }
-const hasRegionMoveList = computed(() => !isGlobalArea.value && displayedMovesets.value.some((moveset) => normalizeRegionSlug(moveset.regionSlug) === pageData.value.areaSlug))
-const moveListPath = computed(() => `${appConfig.navigation.pokedex}/${pageData.value.areaSlug}/waza`)
+const moveListMoveset = computed<PokemonMoveset | undefined>(() => displayedMovesets.value.find((moveset) => getMoveRegionFamily(moveset.regionSlug) === areaMoveFamily.value) ?? displayedMovesets.value[0])
+const hasRegionMoveList = computed(() => !isGlobalArea.value && Boolean(moveListMoveset.value))
+const moveListPath = computed(() => `${appConfig.navigation.pokedex}/${moveListMoveset.value?.regionSlug}/waza`)
 
 const getMatchupGroupLabel = (multiplier: number): string => {
   if (multiplier >= 2) {
@@ -2235,102 +2255,116 @@ useJsonLd(() => {
       </section>
 
       <section v-if="displayedMovesets.length > 0" class="surface section-card">
-        <div class="section-header">
-          <div>
-            <span class="eyebrow">{{ t('pokemon.moves') }}</span>
-            <h2 class="section-title">{{ t('pokemon.moves') }}</h2>
-          </div>
-          <NuxtLink v-if="hasRegionMoveList" :to="moveListPath" class="button-primary button-primary--secondary">
-            {{ t('pokemon.openMoveList') }}
-          </NuxtLink>
-        </div>
+        <details class="move-section__details">
+          <summary
+            class="move-section__summary"
+            :data-open="t('common.open')"
+            :data-close="t('common.close')"
+          >
+            <div>
+              <span class="eyebrow">{{ t('pokemon.moves') }}</span>
+              <h2 class="section-title">{{ t('pokemon.moves') }}</h2>
+            </div>
+            <p class="move-section__summary-text">
+              {{ displayedMovesets.map((moveset) => `${moveset.regionLabel} ${moveset.versionLabel}`).join(' / ') }}
+            </p>
+          </summary>
 
-        <div v-for="moveset in displayedMovesets" :key="moveset.regionSlug" class="moveset-block">
-          <p class="moveset-block__caption">
-            <template v-if="isGlobalArea">{{ moveset.regionLabel }} / </template>{{ moveset.versionLabel }}
-          </p>
+          <div class="move-section__body">
+            <div v-if="hasRegionMoveList" class="move-section__link-row">
+              <NuxtLink :to="moveListPath" class="button-primary button-primary--secondary">
+                {{ t('pokemon.openMoveList') }}
+              </NuxtLink>
+            </div>
 
-          <div v-if="moveset.groups.length > 1" class="move-version-chips">
-            <button
-              v-for="group in moveset.groups"
-              :key="group.key"
-              type="button"
-              class="pill-link move-version-chips__button"
-              :class="{ 'pill-link--active': getActiveMoveGroup(moveset)?.key === group.key }"
-              @click="selectMoveGroup(moveset, group.key)"
-            >
-              <img
-                v-if="group.versionCode && isVersionIconVisible(group.versionCode, group.label)"
-                :src="getPokedexVersionIconPath(group.versionCode)"
-                :alt="group.label"
-                class="move-version-chips__icon"
-                @error="handleVersionIconError(group.versionCode, group.label)"
-              >
-              <span>{{ group.label }}</span>
-            </button>
-          </div>
+            <div v-for="moveset in displayedMovesets" :key="moveset.regionSlug" class="moveset-block">
+              <p class="moveset-block__caption">
+                {{ moveset.regionLabel }} / {{ moveset.versionLabel }}
+              </p>
 
-          <template v-for="group in moveset.groups" :key="`${moveset.regionSlug}-${group.key}`">
-            <div v-if="getActiveMoveGroup(moveset)?.key === group.key" class="move-subsection-list">
-              <div
-                v-for="section in getMoveSections(group)"
-                :key="`${group.key}-${section.key}`"
-                class="move-subsection"
-              >
-                <h3 class="move-subsection__title">{{ section.label }}</h3>
-                <div class="move-table">
-                  <div class="move-table__header">
-                    <span class="move-table__chevron-spacer" aria-hidden="true" />
-                    <span>{{ section.key === 'machines' ? t('pokemon.moveMachine') : (section.key === 'levelUp' ? t('pokemon.moveLevel') : '') }}</span>
-                    <span>{{ t('pokemon.moveName') }}</span>
-                    <span>{{ t('pokemon.type') }}</span>
-                    <span>{{ t('pokemon.moveCategory') }}</span>
-                    <span>{{ t('pokemon.movePower') }}</span>
-                    <span>{{ t('pokemon.moveAccuracy') }}</span>
-                    <span>{{ t('pokemon.movePp') }}</span>
-                  </div>
-                  <div
-                    v-for="row in section.rows"
-                    :key="row.key"
-                    class="move-row"
+              <div v-if="moveset.groups.length > 1" class="move-version-chips">
+                <button
+                  v-for="group in moveset.groups"
+                  :key="group.key"
+                  type="button"
+                  class="pill-link move-version-chips__button"
+                  :class="{ 'pill-link--active': getActiveMoveGroup(moveset)?.key === group.key }"
+                  @click="selectMoveGroup(moveset, group.key)"
+                >
+                  <img
+                    v-if="group.versionCode && isVersionIconVisible(group.versionCode, group.label)"
+                    :src="getPokedexVersionIconPath(group.versionCode)"
+                    :alt="group.label"
+                    class="move-version-chips__icon"
+                    @error="handleVersionIconError(group.versionCode, group.label)"
                   >
-                    <button
-                      type="button"
-                      class="move-row__main"
-                      :aria-expanded="expandedMoveRowKeys.includes(`${moveset.regionSlug}-${group.key}-${row.key}`)"
-                      @click="toggleMoveRow(`${moveset.regionSlug}-${group.key}-${row.key}`)"
-                    >
-                      <svg
-                        viewBox="0 0 24 24"
-                        class="move-row__chevron"
-                        :class="{ 'move-row__chevron--open': expandedMoveRowKeys.includes(`${moveset.regionSlug}-${group.key}-${row.key}`) }"
-                        aria-hidden="true"
+                  <span>{{ group.label }}</span>
+                </button>
+              </div>
+
+              <template v-for="group in moveset.groups" :key="`${moveset.regionSlug}-${group.key}`">
+                <div v-if="getActiveMoveGroup(moveset)?.key === group.key" class="move-subsection-list">
+                  <div
+                    v-for="section in getMoveSections(group)"
+                    :key="`${group.key}-${section.key}`"
+                    class="move-subsection"
+                  >
+                    <h3 class="move-subsection__title">{{ section.label }}</h3>
+                    <div class="move-table">
+                      <div class="move-table__header">
+                        <span class="move-table__chevron-spacer" aria-hidden="true" />
+                        <span>{{ section.key === 'machines' ? t('pokemon.moveMachine') : (section.key === 'levelUp' ? t('pokemon.moveLevel') : '') }}</span>
+                        <span>{{ t('pokemon.moveName') }}</span>
+                        <span>{{ t('pokemon.type') }}</span>
+                        <span>{{ t('pokemon.moveCategory') }}</span>
+                        <span>{{ t('pokemon.movePower') }}</span>
+                        <span>{{ t('pokemon.moveAccuracy') }}</span>
+                        <span>{{ t('pokemon.movePp') }}</span>
+                      </div>
+                      <div
+                        v-for="row in section.rows"
+                        :key="row.key"
+                        class="move-row"
                       >
-                        <path fill="currentColor" d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z" />
-                      </svg>
-                      <span class="move-row__lead">{{ row.lead }}</span>
-                      <span class="move-row__name">{{ row.move.name }}</span>
-                      <span v-if="row.move.type" class="type-chip move-row__type" :style="{ backgroundColor: getTypeColor(row.move.type) }">
-                        {{ getTypeName(row.move.type, selectedLanguage) }}
-                      </span>
-                      <span v-else class="move-row__empty">—</span>
-                      <span class="move-row__stat">{{ getMoveCategoryLabel(row.move.category) }}</span>
-                      <span class="move-row__stat">{{ formatMoveStat(row.move.power) }}</span>
-                      <span class="move-row__stat">{{ formatMoveStat(row.move.accuracy) }}</span>
-                      <span class="move-row__stat">{{ formatMoveStat(row.move.pp) }}</span>
-                    </button>
-                    <p
-                      v-if="expandedMoveRowKeys.includes(`${moveset.regionSlug}-${group.key}-${row.key}`)"
-                      class="move-row__description"
-                    >
-                      {{ row.move.description || t('common.unknown') }}
-                    </p>
+                        <button
+                          type="button"
+                          class="move-row__main"
+                          :aria-expanded="expandedMoveRowKeys.includes(`${moveset.regionSlug}-${group.key}-${row.key}`)"
+                          @click="toggleMoveRow(`${moveset.regionSlug}-${group.key}-${row.key}`)"
+                        >
+                          <svg
+                            viewBox="0 0 24 24"
+                            class="move-row__chevron"
+                            :class="{ 'move-row__chevron--open': expandedMoveRowKeys.includes(`${moveset.regionSlug}-${group.key}-${row.key}`) }"
+                            aria-hidden="true"
+                          >
+                            <path fill="currentColor" d="M16.59 8.59 12 13.17 7.41 8.59 6 10l6 6 6-6z" />
+                          </svg>
+                          <span class="move-row__lead">{{ row.lead }}</span>
+                          <span class="move-row__name">{{ row.move.name }}</span>
+                          <span v-if="row.move.type" class="type-chip move-row__type" :style="{ backgroundColor: getTypeColor(row.move.type) }">
+                            {{ getTypeName(row.move.type, selectedLanguage) }}
+                          </span>
+                          <span v-else class="move-row__empty">—</span>
+                          <span class="move-row__stat">{{ getMoveCategoryLabel(row.move.category) }}</span>
+                          <span class="move-row__stat">{{ formatMoveStat(row.move.power) }}</span>
+                          <span class="move-row__stat">{{ formatMoveStat(row.move.accuracy) }}</span>
+                          <span class="move-row__stat">{{ formatMoveStat(row.move.pp) }}</span>
+                        </button>
+                        <p
+                          v-if="expandedMoveRowKeys.includes(`${moveset.regionSlug}-${group.key}-${row.key}`)"
+                          class="move-row__description"
+                        >
+                          {{ row.move.description || t('common.unknown') }}
+                        </p>
+                      </div>
+                    </div>
                   </div>
                 </div>
-              </div>
+              </template>
             </div>
-          </template>
-        </div>
+          </div>
+        </details>
       </section>
 
       <section class="surface section-card tag-section">
@@ -3292,9 +3326,72 @@ useJsonLd(() => {
   transform: translateY(10px);
 }
 
+.move-section__details {
+  display: grid;
+  gap: 1rem;
+  min-width: 0;
+}
+
+.move-section__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  min-width: 0;
+  cursor: pointer;
+  list-style: none;
+}
+
+.move-section__summary::-webkit-details-marker {
+  display: none;
+}
+
+.move-section__summary::marker {
+  content: '';
+}
+
+.move-section__summary::after {
+  content: attr(data-open);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 64px;
+  padding: 0.35rem 0.75rem;
+  border-radius: 0;
+  background: var(--surface-soft);
+  color: var(--text-soft);
+  font-size: 0.85rem;
+  font-weight: 700;
+}
+
+.move-section__details[open] .move-section__summary::after {
+  content: attr(data-close);
+}
+
+.move-section__summary-text {
+  margin: 0;
+  min-width: 0;
+  color: var(--text-soft);
+  line-height: 1.5;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
+
+.move-section__body {
+  display: grid;
+  gap: 14px;
+  min-width: 0;
+}
+
+.move-section__link-row {
+  display: flex;
+  justify-content: flex-end;
+}
+
 .moveset-block {
   display: grid;
   gap: 14px;
+  min-width: 0;
 }
 
 .moveset-block + .moveset-block {
@@ -3331,6 +3428,11 @@ useJsonLd(() => {
 .move-subsection-list {
   display: grid;
   gap: 20px;
+  min-width: 0;
+}
+
+.move-subsection {
+  min-width: 0;
 }
 
 .move-subsection__title {
@@ -3452,6 +3554,15 @@ useJsonLd(() => {
   .move-row__main {
     grid-template-columns: 1.25rem 3.6rem minmax(6.5rem, 1.4fr) 4.2rem 3rem 2.6rem 2.6rem 2.2rem;
     min-width: 520px;
+  }
+
+  .move-section__summary {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .move-section__summary-text {
+    text-align: left;
   }
 }
 </style>
