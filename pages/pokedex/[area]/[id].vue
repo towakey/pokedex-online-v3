@@ -1133,6 +1133,8 @@ const visibleDescriptionGroups = computed(() => (
 ))
 const swipeStartX = ref<number | null>(null)
 const swipeStartY = ref<number | null>(null)
+const swipeScrollEl = ref<HTMLElement | null>(null)
+const swipeScrollStart = ref(0)
 const tagUiLanguage = computed<'jpn' | 'eng'>(() => normalizeLanguageKey(selectedLanguage.value) === 'eng' ? 'eng' : 'jpn')
 const isTagDialogVisible = ref(false)
 const existingTags = ref<TagItem[]>([])
@@ -1625,9 +1627,40 @@ const toggleGlobalDescriptionGroup = (groupKey: string) => {
   expandedGlobalDescriptionKeys.value = [...expandedGlobalDescriptionKeys.value, groupKey]
 }
 
+const SWIPE_MIN_DISTANCE = 88
+const SWIPE_MAX_VERTICAL_DRIFT = 80
+const SWIPE_HORIZONTAL_RATIO = 2
+
+const findSwipeScrollContainer = (start: Element | null, boundary: Element | null): HTMLElement | null => {
+  let el = start
+  while (el && el !== boundary) {
+    if (el instanceof HTMLElement && el.scrollWidth - el.clientWidth > 1) {
+      const overflowX = getComputedStyle(el).overflowX
+      if (overflowX === 'auto' || overflowX === 'scroll') {
+        return el
+      }
+    }
+    el = el.parentElement
+  }
+  return null
+}
+
+const resetSwipeState = () => {
+  swipeStartX.value = null
+  swipeStartY.value = null
+  swipeScrollEl.value = null
+  swipeScrollStart.value = 0
+}
+
 const handleSwipeStart = (event: TouchEvent) => {
   swipeStartX.value = event.changedTouches[0]?.clientX ?? null
   swipeStartY.value = event.changedTouches[0]?.clientY ?? null
+  const scroller = findSwipeScrollContainer(
+    event.target instanceof Element ? event.target : null,
+    event.currentTarget instanceof Element ? event.currentTarget : null
+  )
+  swipeScrollEl.value = scroller
+  swipeScrollStart.value = scroller?.scrollLeft ?? 0
 }
 
 const handleSwipeEnd = async (event: TouchEvent) => {
@@ -1639,11 +1672,24 @@ const handleSwipeEnd = async (event: TouchEvent) => {
   const endY = event.changedTouches[0]?.clientY ?? swipeStartY.value
   const deltaX = endX - swipeStartX.value
   const deltaY = endY - swipeStartY.value
-  swipeStartX.value = null
-  swipeStartY.value = null
+  const scrollEl = swipeScrollEl.value
+  const scrollStart = swipeScrollStart.value
+  resetSwipeState()
 
-  if (Math.abs(deltaX) < 72 || Math.abs(deltaX) < Math.abs(deltaY) * 1.4) {
+  const absX = Math.abs(deltaX)
+  const absY = Math.abs(deltaY)
+  if (absX < SWIPE_MIN_DISTANCE || absY > SWIPE_MAX_VERTICAL_DRIFT || absX < absY * SWIPE_HORIZONTAL_RATIO) {
     return
+  }
+
+  if (scrollEl) {
+    const scrolled = Math.abs(scrollEl.scrollLeft - scrollStart) > 2
+    const canScrollInDirection = deltaX < 0
+      ? scrollEl.scrollLeft + scrollEl.clientWidth < scrollEl.scrollWidth - 1
+      : scrollEl.scrollLeft > 1
+    if (scrolled || canScrollInDirection) {
+      return
+    }
   }
 
   const target = deltaX < 0 ? pageData.value.nextPokemon : pageData.value.previousPokemon
@@ -1826,7 +1872,7 @@ useJsonLd(() => {
   <div class="container page-stack">
     <AppBreadcrumbs :items="breadcrumbItems" :json-ld="false" />
 
-    <section v-if="pokemon" class="page-stack" @touchstart.passive="handleSwipeStart" @touchend.passive="handleSwipeEnd">
+    <section v-if="pokemon" class="page-stack" @touchstart.passive="handleSwipeStart" @touchend.passive="handleSwipeEnd" @touchcancel.passive="resetSwipeState">
       <section class="surface section-card detail-nav">
         <div class="detail-nav__slot detail-nav__slot--start">
           <NuxtLink
