@@ -36,6 +36,7 @@ export interface PokemonDetail extends SearchIndexItem {
   forms?: LocalizedTextMap
   classifications?: LocalizedTextMap
   movesets?: PokemonMoveset[]
+  encounters?: PokemonEncounter[]
   evolutions?: Array<{
     version: string
     versionLabel: string
@@ -48,6 +49,27 @@ export interface PokemonDetail extends SearchIndexItem {
     name: string
     names?: LocalizedTextMap
   }>
+}
+
+export interface PokemonEncounterVersion {
+  version: string
+  label: string
+  versionCode?: string
+}
+
+export interface PokemonEncounterMethod {
+  type: string
+  versions: PokemonEncounterVersion[]
+  locations: string[]
+  note?: string
+}
+
+export interface PokemonEncounter {
+  version: string
+  versionLabel: string
+  regionSlug: string
+  regionLabel: string
+  methods: PokemonEncounterMethod[]
 }
 
 export interface RegionEntry {

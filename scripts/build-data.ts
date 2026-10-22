@@ -33,6 +33,7 @@ interface PokemonRecord {
   forms?: Record<string, string>
   evolutions?: EvolutionRecord[]
   movesets?: PokemonMovesetRecord[]
+  encounters?: PokemonEncounterRecord[]
 }
 
 interface EvolutionRecord {
@@ -80,6 +81,27 @@ interface PokemonMovesetRecord {
   version: string
   versionLabel: string
   groups: PokemonMoveGroupRecord[]
+}
+
+interface EncounterVersionRecord {
+  version: string
+  label: string
+  versionCode?: string
+}
+
+interface EncounterMethodRecord {
+  type: string
+  versions: EncounterVersionRecord[]
+  locations: string[]
+  note?: string
+}
+
+interface PokemonEncounterRecord {
+  version: string
+  versionLabel: string
+  regionSlug: string
+  regionLabel: string
+  methods: EncounterMethodRecord[]
 }
 
 interface RegionMovesFileRecord {
@@ -965,7 +987,8 @@ const mergePokemonRecord = (current: PokemonRecord | undefined, incoming: Pokemo
     stats: current.stats || incoming.stats ? { ...(current.stats ?? {}), ...(incoming.stats ?? {}) } : undefined,
     forms: current.forms || incoming.forms ? { ...(current.forms ?? {}), ...(incoming.forms ?? {}) } : undefined,
     evolutions: current.evolutions || incoming.evolutions ? [...(current.evolutions ?? []), ...(incoming.evolutions ?? [])] : undefined,
-    movesets: current.movesets || incoming.movesets ? [...(current.movesets ?? []), ...(incoming.movesets ?? [])] : undefined
+    movesets: current.movesets || incoming.movesets ? [...(current.movesets ?? []), ...(incoming.movesets ?? [])] : undefined,
+    encounters: current.encounters || incoming.encounters ? [...(current.encounters ?? []), ...(incoming.encounters ?? [])] : undefined
   }
 }
 
@@ -1611,6 +1634,134 @@ for (const [slug, regionConfig] of configuredRegionEntries) {
 
     writeJson(resolve(wazaOutputDir, `${slug}.json`), regionMovesFile as unknown as JsonValue)
     regionsWithMoves.add(slug)
+  }
+
+  // ゲット方法データ (encounter.json) の正規化
+  // encounter のエントリキーは全国図鑑No（globalNo）。地方キーは粗い地方名なので
+  // スラッグ一致を優先し、なければ全マップをマージして全国図鑑Noで照合する
+  const encounterFilePath = resolve(versionDirectory, 'encounter.json')
+
+  if (existsSync(encounterFilePath)) {
+    const encounterSource = readJsonFile<JsonRecord>(encounterFilePath)
+    const encounterRegionMap = toRecordMap(encounterSource.encounter)
+    const regionEncounterMap = toRecordMap(encounterRegionMap[slug])
+    const encounterEntriesMap = Object.keys(regionEncounterMap).length > 0
+      ? regionEncounterMap
+      : Object.values(encounterRegionMap).reduce<Record<string, JsonRecord>>(
+          (merged, regionValue) => Object.assign(merged, toRecordMap(regionValue)),
+          {}
+        )
+
+    if (Object.keys(encounterEntriesMap).length > 0) {
+      const encounterVersionNameMeta = new Map<string, { code: string; label: string }>()
+
+      for (const [code, entry] of versionDisplayMap.entries()) {
+        if (normalizeVersionNameKey(entry.versionGroup ?? '') !== normalizeVersionNameKey(regionConfig.version_key)) {
+          continue
+        }
+
+        const nameKey = normalizeVersionNameKey(entry.version)
+        if (nameKey && !encounterVersionNameMeta.has(nameKey)) {
+          encounterVersionNameMeta.set(nameKey, { code, label: entry.label })
+        }
+      }
+
+      const encounterVersionLabels = [...versionDisplayMap.values()]
+        .filter((entry) => normalizeVersionNameKey(entry.versionGroup ?? '') === normalizeVersionNameKey(regionConfig.version_key))
+        .sort((left, right) => left.order - right.order)
+        .map((entry) => entry.label)
+      const encounterVersionLabel = uniqueStrings(encounterVersionLabels).join('・') || normalizeVersionLabel(regionConfig.version_key)
+      const encounterRegionLabel = regionConfig.label_jpn || regionConfig.display_jpn || createRegionLabel(slug)
+
+      for (const [encounterDex, encounterValue] of Object.entries(encounterEntriesMap)) {
+        if (!Array.isArray(encounterValue.methods)) {
+          continue
+        }
+
+        const nationalDexNumber = parsePokemonId(toStringValue(encounterValue.globalNo) ?? encounterDex)
+        const targetPokemonIds: string[] = []
+
+        if (nationalDexNumber) {
+          for (const formsValue of Object.values(regionalEntriesMap)) {
+            for (const pokemonId of Object.keys(toRecordMap(formsValue))) {
+              if (parsePokemonId(pokemonId) === nationalDexNumber && !targetPokemonIds.includes(pokemonId)) {
+                targetPokemonIds.push(pokemonId)
+              }
+            }
+          }
+        }
+
+        if (targetPokemonIds.length === 0) {
+          continue
+        }
+
+        const methods: EncounterMethodRecord[] = []
+
+        for (const methodValue of encounterValue.methods) {
+          if (!isRecord(methodValue)) {
+            continue
+          }
+
+          const type = toStringValue(methodValue.type)
+
+          if (!type) {
+            continue
+          }
+
+          const versions = (Array.isArray(methodValue.versions) ? methodValue.versions : [])
+            .map((versionValue): EncounterVersionRecord | undefined => {
+              const versionName = toStringValue(versionValue)
+
+              if (!versionName) {
+                return undefined
+              }
+
+              const meta = encounterVersionNameMeta.get(normalizeVersionNameKey(versionName))
+
+              return meta?.code
+                ? { version: versionName, label: meta.label, versionCode: meta.code }
+                : { version: versionName, label: meta?.label ?? normalizeVersionLabel(versionName) }
+            })
+            .filter((versionEntry): versionEntry is EncounterVersionRecord => Boolean(versionEntry))
+          const locations = (Array.isArray(methodValue.locations) ? methodValue.locations : [])
+            .map((locationValue) => toStringValue(locationValue))
+            .filter((location): location is string => Boolean(location))
+
+          methods.push({
+            type,
+            versions,
+            locations,
+            note: toStringValue(methodValue.note)
+          })
+        }
+
+        if (methods.length === 0) {
+          continue
+        }
+
+        for (const pokemonId of targetPokemonIds) {
+          const targetPokemon = pokemonMap.get(pokemonId)
+
+          if (!targetPokemon) {
+            continue
+          }
+
+          const encounters = targetPokemon.encounters ?? []
+
+          if (!encounters.some((entry) => entry.regionSlug === slug)) {
+            encounters.push({
+              version: regionConfig.version_key,
+              versionLabel: encounterVersionLabel,
+              regionSlug: slug,
+              regionLabel: encounterRegionLabel,
+              methods
+            })
+          }
+
+          targetPokemon.encounters = encounters
+        }
+      }
+    }
   }
 
   regionMap.set(slug, deduped)

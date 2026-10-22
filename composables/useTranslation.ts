@@ -931,6 +931,17 @@ const UI_LABELS: Record<string, LanguageMap> = {
     chs: "进化条件",
     cht: "進化條件"
   },
+  'pokemon.encounters': {
+    jpn: "ゲット方法",
+    eng: "How to obtain",
+    fra: "Comment l'obtenir",
+    ita: "Come ottenerlo",
+    ger: "Fundorte",
+    spa: "Cómo conseguirlo",
+    kor: "입수 방법",
+    chs: "获取方式",
+    cht: "獲取方式"
+  },
   'pokemon.moves': {
     jpn: "わざ",
     eng: "Moves",

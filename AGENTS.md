@@ -7,6 +7,14 @@
 - サーバー側（SSR/prerender）: `generated-data/` をファイルから直接読む（`serverDataCache` でメモリキャッシュ）
 - クライアント側: `/data/*`（nitro publicAssets → `generated-data/`）を fetch
 
+### 各ゲームディレクトリの補助JSON
+
+`pokedex/pokedex/<ゲーム名>/` 配下のファイルは `<ゲーム名>.json` の隣に置くと build-data が拾う。
+
+- `evolve.json`: 進化データ → ポケモンJSONの `evolutions`
+- `waza.json` / `waza_list.json` / `waza_machine.json`: わざデータ → `movesets` と `generated-data/waza/<slug>.json`
+- `encounter.json`: ゲット方法 → ポケモンJSONの `encounters`。`encounter.<地方名>.<全国図鑑No>.{name, methods[]}` 形式で、method は `{type, versions[], locations[], note?}`。versions は `version_mapping` の `name_eng`（red/green等）。地方キーは設定スラッグと一致しなくてよく、全国図鑑Noで地方図鑑内のポケモンに紐付く
+
 ## ソースJSONを編集した場合
 
 ```bash

@@ -6,7 +6,7 @@ import { useTypeEffectiveness } from '~/composables/useTypeEffectiveness'
 import { useTypeName } from '~/composables/useTypeName'
 import { useTranslation } from '~/composables/useTranslation'
 import { usePokemonCollections } from '~/composables/usePokemonCollections'
-import type { MoveDetail, PokemonDetail, PokemonMoveGroup, PokemonMoveset, RegionEntry, RegionMeta, SearchIndexItem } from '~/composables/usePokedex'
+import type { MoveDetail, PokemonDetail, PokemonEncounter, PokemonMoveGroup, PokemonMoveset, RegionEntry, RegionMeta, SearchIndexItem } from '~/composables/usePokedex'
 import flagJp from 'flag-icons/flags/4x3/jp.svg'
 import flagUs from 'flag-icons/flags/4x3/us.svg'
 import flagFr from 'flag-icons/flags/4x3/fr.svg'
@@ -1111,6 +1111,54 @@ const toggleMoveRow = (key: string) => {
 const moveListMoveset = computed<PokemonMoveset | undefined>(() => displayedMovesets.value.find((moveset) => getMoveRegionFamily(moveset.regionSlug) === areaMoveFamily.value) ?? displayedMovesets.value[0])
 const hasRegionMoveList = computed(() => !isGlobalArea.value && Boolean(moveListMoveset.value))
 const moveListPath = computed(() => `${appConfig.navigation.pokedex}/${moveListMoveset.value?.regionSlug}/waza`)
+
+interface EncounterVersionView {
+  key: string
+  version: string
+  label: string
+  versionCode?: string
+  iconPath: string
+}
+
+interface EncounterMethodView {
+  key: string
+  type: string
+  versions: EncounterVersionView[]
+  locations: string[]
+  note?: string
+}
+
+interface EncounterView {
+  key: string
+  version: string
+  versionLabel: string
+  regionSlug: string
+  regionLabel: string
+  methods: EncounterMethodView[]
+}
+
+const displayedEncounters = computed<EncounterView[]>(() => (pokemon.value?.encounters ?? [])
+  .filter((entry: PokemonEncounter) => isGlobalArea.value || normalizeRegionSlug(entry.regionSlug) === pageData.value.areaSlug)
+  .map((entry: PokemonEncounter) => ({
+    key: `${entry.regionSlug}:${entry.version}`,
+    version: entry.version,
+    versionLabel: entry.versionLabel,
+    regionSlug: entry.regionSlug,
+    regionLabel: getRegionLabel(entry.regionSlug) || entry.regionLabel,
+    methods: entry.methods.map((method, methodIndex) => ({
+      key: `${entry.regionSlug}-${methodIndex}-${method.type}`,
+      type: method.type,
+      versions: method.versions.map((versionEntry) => ({
+        key: versionEntry.versionCode || versionEntry.version,
+        version: versionEntry.version,
+        label: versionEntry.label,
+        versionCode: versionEntry.versionCode,
+        iconPath: getPokedexVersionIconPath(versionEntry.versionCode)
+      })),
+      locations: method.locations,
+      note: method.note
+    }))
+  })))
 
 const getMatchupGroupLabel = (multiplier: number): string => {
   if (multiplier >= 2) {
@@ -2413,6 +2461,57 @@ useJsonLd(() => {
         </details>
       </section>
 
+      <section v-if="displayedEncounters.length > 0" class="surface section-card">
+        <div class="section-header">
+          <div>
+            <span class="eyebrow">{{ t('pokemon.encounters') }}</span>
+            <h2 class="section-title">{{ t('pokemon.encounters') }}</h2>
+          </div>
+        </div>
+        <div class="encounter-list">
+          <article
+            v-for="encounter in displayedEncounters"
+            :key="encounter.key"
+            class="encounter-region"
+          >
+            <p v-if="isGlobalArea || displayedEncounters.length > 1" class="encounter-region__caption">
+              {{ encounter.regionLabel }} / {{ encounter.versionLabel }}
+            </p>
+            <div class="encounter-method-list">
+              <article
+                v-for="method in encounter.methods"
+                :key="method.key"
+                class="encounter-method"
+              >
+                <strong class="encounter-method__type">{{ method.type }}</strong>
+                <div class="encounter-method__versions">
+                  <span
+                    v-for="versionEntry in method.versions"
+                    :key="versionEntry.key"
+                    class="encounter-version-chip"
+                    :title="versionEntry.version"
+                  >
+                    <img
+                      v-if="versionEntry.iconPath && isVersionIconVisible(versionEntry.versionCode, versionEntry.version)"
+                      :src="versionEntry.iconPath"
+                      :alt="versionEntry.label"
+                      class="encounter-version-chip__icon"
+                      @error="handleVersionIconError(versionEntry.versionCode, versionEntry.version)"
+                    >
+                    <span class="encounter-version-chip__label">{{ versionEntry.label }}</span>
+                  </span>
+                  <span v-if="method.versions.length === 0" class="encounter-method__versions-fallback">{{ encounter.versionLabel }}</span>
+                </div>
+                <div class="encounter-method__detail">
+                  <span v-if="method.locations.length > 0" class="encounter-method__locations">{{ method.locations.join('、') }}</span>
+                  <span v-if="method.note" class="encounter-method__note">{{ method.note }}</span>
+                </div>
+              </article>
+            </div>
+          </article>
+        </div>
+      </section>
+
       <section class="surface section-card tag-section">
         <div class="section-header tag-section__header">
           <div>
@@ -2812,6 +2911,94 @@ useJsonLd(() => {
   flex-shrink: 0;
 }
 
+.encounter-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.encounter-region {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.encounter-region__caption {
+  margin: 0;
+  color: var(--text-soft);
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.encounter-method-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.encounter-method {
+  display: grid;
+  grid-template-columns: minmax(140px, 0.8fr) minmax(160px, 1fr) minmax(180px, 1.4fr);
+  align-items: start;
+  gap: 1rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-radius: 0;
+  background: var(--surface-soft);
+}
+
+.encounter-method__type {
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.encounter-method__versions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.encounter-version-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  padding: 0.35rem 0.7rem;
+  border-radius: 0;
+  background: var(--tint);
+}
+
+.encounter-version-chip__icon {
+  width: 20px;
+  height: 20px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+
+.encounter-version-chip__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.encounter-method__versions-fallback {
+  color: var(--text-soft);
+  font-size: 0.85rem;
+}
+
+.encounter-method__detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.encounter-method__locations {
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+
+.encounter-method__note {
+  color: var(--text-soft);
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
 .global-description-list {
   display: grid;
   gap: 1rem;
@@ -2946,6 +3133,11 @@ useJsonLd(() => {
   .evolution-entry {
     grid-template-columns: 1fr auto 1fr;
     gap: 0.75rem;
+  }
+
+  .encounter-method {
+    grid-template-columns: 1fr;
+    gap: 0.6rem;
   }
 
   .evolution-entry__version {
