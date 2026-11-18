@@ -15,7 +15,7 @@ const GUESS_DISPLAY_LIMIT = 24
 
 const appConfig = useSiteAppConfig()
 const { t, getRegionLabel } = useTranslation()
-const { loadGuess } = usePokedex()
+const { loadGuess, buildPokemonDetailPath } = usePokedex()
 
 const allPokemon = ref<GuessEntry[]>([])
 const questions = ref<GuessQuestion[]>([])
@@ -212,9 +212,16 @@ onMounted(async () => {
           :pokemon="pokemon"
         />
       </div>
-      <p v-if="candidates.length > GUESS_DISPLAY_LIMIT" class="guess-panel__meta">
-        ほか {{ candidates.length - GUESS_DISPLAY_LIMIT }} 件
-      </p>
+      <details v-if="candidates.length > GUESS_DISPLAY_LIMIT" class="guess-remaining">
+        <summary>ほか {{ candidates.length - GUESS_DISPLAY_LIMIT }} 件をすべて表示</summary>
+        <ul class="guess-remaining__list">
+          <li v-for="pokemon in candidates.slice(GUESS_DISPLAY_LIMIT)" :key="pokemon.id">
+            <NuxtLink :to="buildPokemonDetailPath(appConfig.site.defaultArea, pokemon.dex, pokemon.id)">
+              No.{{ String(pokemon.dex).padStart(4, '0') }} {{ pokemon.name }}
+            </NuxtLink>
+          </li>
+        </ul>
+      </details>
       <div class="guess-panel__actions">
         <button type="button" class="button-primary" @click="reset">
           もう一度
@@ -276,6 +283,23 @@ onMounted(async () => {
 
 .guess-panel .pokemon-grid {
   width: 100%;
+}
+
+.guess-remaining {
+  width: 100%;
+  text-align: left;
+}
+
+.guess-remaining__list {
+  margin: 12px 0 0;
+  padding-left: 1.2em;
+  columns: 2;
+  font-size: 0.9rem;
+}
+
+.guess-remaining__list a {
+  color: var(--primary-strong);
+  font-weight: 600;
 }
 
 .guess-log {
