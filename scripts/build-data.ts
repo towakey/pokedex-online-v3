@@ -128,6 +128,22 @@ interface SearchIndexRecord extends IndexRecord {
   forms?: Record<string, string>
 }
 
+interface GuessRecord {
+  id: string
+  dex: number
+  name: string
+  types: string[]
+  generation: number
+  height?: number
+  weight?: number
+  statTotal?: number
+  canEvolve: boolean
+  isEvolved: boolean
+  hasVariants: boolean
+  eggGroups?: string[]
+  regions: string[]
+}
+
 interface RegionEntry {
   dex: number
   pokemon_id: string
@@ -1258,6 +1274,7 @@ const regionMap = new Map<string, RegionEntry[]>()
 const regionsWithMoves = new Set<string>()
 const primaryGlobalIdByDex = new Map<number, string>()
 const globalEntries: RegionEntry[] = []
+const eggGroupsByPokemonId = new Map<string, string[]>()
 
 for (const [globalNo, formsValue] of Object.entries(globalPokedex)) {
   const dexNumber = parsePokemonId(globalNo)
@@ -1276,6 +1293,14 @@ for (const [globalNo, formsValue] of Object.entries(globalPokedex)) {
   for (const [pokemonId, pokemonEntry] of Object.entries(formMap)) {
     const globalDescriptions = createGlobalDescriptionEntries(globalDescriptionMap.get(pokemonId), versionDisplayMap, versionDescriptionLookup, versionRegionLinkLookup, pokemonId)
     const baseRecord = createPokemonBaseRecord(pokemonId, dexNumber, { [pokemonId]: pokemonEntry })
+
+    const eggValue = pokemonEntry?.egg
+    if (Array.isArray(eggValue)) {
+      const eggGroups = uniqueStrings(eggValue.map(toStringValue))
+      if (eggGroups.length > 0) {
+        eggGroupsByPokemonId.set(pokemonId, eggGroups)
+      }
+    }
 
     pokemonMap.set(pokemonId, {
       ...baseRecord,
@@ -1785,6 +1810,52 @@ for (const pokemon of pokemonMap.values()) {
 }
 
 const pokemonRecords = [...pokemonMap.values()].sort((left, right) => left.dex - right.dex || left.id.localeCompare(right.id))
+
+const GENERATION_DEX_LIMITS = [151, 251, 386, 493, 649, 721, 809, 905]
+const resolveGeneration = (dex: number) => GENERATION_DEX_LIMITS.findIndex((limit) => dex <= limit) + 1 || GENERATION_DEX_LIMITS.length + 1
+
+const evolvedIds = new Set<string>()
+for (const pokemon of pokemonRecords) {
+  for (const evolution of pokemon.evolutions ?? []) {
+    evolvedIds.add(evolution.pokemonId)
+  }
+}
+
+const regionsByPokemonId = new Map<string, Set<string>>()
+for (const [slug, entries] of regionMap.entries()) {
+  for (const entry of entries) {
+    const set = regionsByPokemonId.get(entry.pokemon_id) ?? new Set<string>()
+    set.add(slug)
+    regionsByPokemonId.set(entry.pokemon_id, set)
+  }
+}
+
+const entryCountByDex = new Map<number, number>()
+for (const pokemon of pokemonRecords) {
+  entryCountByDex.set(pokemon.dex, (entryCountByDex.get(pokemon.dex) ?? 0) + 1)
+}
+
+const guessRecords: GuessRecord[] = pokemonRecords.map((pokemon) => {
+  const stats = pokemon.stats ?? {}
+  const statValues = Object.values(stats).filter((value): value is number => typeof value === 'number')
+
+  return {
+    id: pokemon.id,
+    dex: pokemon.dex,
+    name: pokemon.name,
+    types: pokemon.types,
+    generation: resolveGeneration(pokemon.dex),
+    height: pokemon.height,
+    weight: pokemon.weight,
+    statTotal: statValues.length > 0 ? statValues.reduce((total, value) => total + value, 0) : undefined,
+    canEvolve: (pokemon.evolutions?.length ?? 0) > 0,
+    isEvolved: evolvedIds.has(pokemon.id),
+    hasVariants: (entryCountByDex.get(pokemon.dex) ?? 0) > 1,
+    eggGroups: eggGroupsByPokemonId.get(pokemon.id),
+    regions: [...(regionsByPokemonId.get(pokemon.id) ?? [])].filter((slug) => slug !== 'global')
+  }
+})
+
 const indexRecords: IndexRecord[] = pokemonRecords.map((pokemon) => ({
   id: pokemon.id,
   dex: pokemon.dex,
@@ -1835,6 +1906,7 @@ for (const [slug, entries] of regionMap.entries()) {
 
 writeJson(resolve(outputDir, 'index.json'), indexRecords as unknown as JsonValue)
 writeJson(resolve(outputDir, 'search-index.json'), searchIndexRecords as unknown as JsonValue)
+writeJson(resolve(outputDir, 'guess.json'), guessRecords as unknown as JsonValue)
 writeJson(resolve(outputDir, 'regions.json'), regionMeta as unknown as JsonValue)
 
 writeFileSync(lastmodManifestPath(), JSON.stringify(nextLastmodManifest, null, 2), 'utf-8')
