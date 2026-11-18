@@ -1814,45 +1814,79 @@ const pokemonRecords = [...pokemonMap.values()].sort((left, right) => left.dex -
 const GENERATION_DEX_LIMITS = [151, 251, 386, 493, 649, 721, 809, 905]
 const resolveGeneration = (dex: number) => GENERATION_DEX_LIMITS.findIndex((limit) => dex <= limit) + 1 || GENERATION_DEX_LIMITS.length + 1
 
-const evolvedIds = new Set<string>()
+const evolvedDexes = new Set<number>()
+const canEvolveDexes = new Set<number>()
 for (const pokemon of pokemonRecords) {
   for (const evolution of pokemon.evolutions ?? []) {
-    evolvedIds.add(evolution.pokemonId)
+    const targetNationalDex = pokemonMap.get(evolution.pokemonId)?.dex ?? parsePokemonId(evolution.pokemonId)
+    if (targetNationalDex) {
+      evolvedDexes.add(targetNationalDex)
+    }
+    canEvolveDexes.add(pokemon.dex)
   }
 }
 
-const regionsByPokemonId = new Map<string, Set<string>>()
+const regionsByDex = new Map<number, Set<string>>()
 for (const [slug, entries] of regionMap.entries()) {
-  for (const entry of entries) {
-    const set = regionsByPokemonId.get(entry.pokemon_id) ?? new Set<string>()
-    set.add(slug)
-    regionsByPokemonId.set(entry.pokemon_id, set)
+  if (slug === 'global') {
+    continue
   }
+  for (const entry of entries) {
+    const set = regionsByDex.get(entry.national_dex) ?? new Set<string>()
+    set.add(slug)
+    regionsByDex.set(entry.national_dex, set)
+  }
+}
+
+const sumStats = (stats: PokemonRecord['stats']): number | undefined => {
+  const values = Object.values(stats ?? {}).filter((value): value is number => typeof value === 'number')
+  return values.length > 0 ? values.reduce((total, value) => total + value, 0) : undefined
 }
 
 const entryCountByDex = new Map<number, number>()
+const guessFallbackByDex = new Map<number, { types?: string[]; height?: number; weight?: number; statTotal?: number; eggGroups?: string[] }>()
 for (const pokemon of pokemonRecords) {
   entryCountByDex.set(pokemon.dex, (entryCountByDex.get(pokemon.dex) ?? 0) + 1)
+
+  const fallback = guessFallbackByDex.get(pokemon.dex) ?? {}
+  if (pokemon.types.length > 0 && !fallback.types) {
+    fallback.types = pokemon.types
+  }
+  if (pokemon.height !== undefined && fallback.height === undefined) {
+    fallback.height = pokemon.height
+  }
+  if (pokemon.weight !== undefined && fallback.weight === undefined) {
+    fallback.weight = pokemon.weight
+  }
+  const statTotal = sumStats(pokemon.stats)
+  if (statTotal !== undefined && fallback.statTotal === undefined) {
+    fallback.statTotal = statTotal
+  }
+  const eggGroups = eggGroupsByPokemonId.get(pokemon.id)
+  if (eggGroups && !fallback.eggGroups) {
+    fallback.eggGroups = eggGroups
+  }
+  guessFallbackByDex.set(pokemon.dex, fallback)
 }
 
+// 地方図鑑に収録されない性別・フォルム違い等の別エントリは、同じ全国図鑑Noのデータを引き継ぐ
 const guessRecords: GuessRecord[] = pokemonRecords.map((pokemon) => {
-  const stats = pokemon.stats ?? {}
-  const statValues = Object.values(stats).filter((value): value is number => typeof value === 'number')
+  const fallback = guessFallbackByDex.get(pokemon.dex) ?? {}
 
   return {
     id: pokemon.id,
     dex: pokemon.dex,
     name: pokemon.name,
-    types: pokemon.types,
+    types: pokemon.types.length > 0 ? pokemon.types : (fallback.types ?? []),
     generation: resolveGeneration(pokemon.dex),
-    height: pokemon.height,
-    weight: pokemon.weight,
-    statTotal: statValues.length > 0 ? statValues.reduce((total, value) => total + value, 0) : undefined,
-    canEvolve: (pokemon.evolutions?.length ?? 0) > 0,
-    isEvolved: evolvedIds.has(pokemon.id),
+    height: pokemon.height ?? fallback.height,
+    weight: pokemon.weight ?? fallback.weight,
+    statTotal: sumStats(pokemon.stats) ?? fallback.statTotal,
+    canEvolve: canEvolveDexes.has(pokemon.dex),
+    isEvolved: evolvedDexes.has(pokemon.dex),
     hasVariants: (entryCountByDex.get(pokemon.dex) ?? 0) > 1,
-    eggGroups: eggGroupsByPokemonId.get(pokemon.id),
-    regions: [...(regionsByPokemonId.get(pokemon.id) ?? [])].filter((slug) => slug !== 'global')
+    eggGroups: eggGroupsByPokemonId.get(pokemon.id) ?? fallback.eggGroups,
+    regions: [...(regionsByDex.get(pokemon.dex) ?? [])]
   }
 })
 
