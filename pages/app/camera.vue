@@ -8,6 +8,11 @@ import { useTranslation } from '~/composables/useTranslation'
 import { useLanguagePreference } from '~/composables/useLanguagePreference'
 import { updateTracks, voteForLabel, type Track } from '~/utils/cameraTracker'
 
+// 既定レイアウト（AppHeader/AppSidebar）はSPA遷移のNuxtLinkを含むため使わない。
+// このページはCOOP/COEP付きで配信され、SPAで他ページへ抜けると先方のページが
+// 隔離コンテキストを継いでしまうため、全画面ページとして自前のバーを持つ
+definePageMeta({ layout: false })
+
 const appConfig = useSiteAppConfig()
 const { t } = useTranslation()
 const { language } = useLanguagePreference()
@@ -33,6 +38,7 @@ let lastDetectAt = 0
 let lastStatsAt = 0
 let frameCount = 0
 let pendingEmbeds = new Set<number>()
+let lastEmbedTrackId = 0
 
 const appBaseURL = (useRuntimeConfig().public.appBaseURL || '/').replace(/\/$/, '')
 const isolated = import.meta.client ? globalThis.crossOriginIsolated : true
@@ -52,7 +58,8 @@ const localizedName = (index: number | null): string => {
 
 const detailUrl = (index: number): string => {
   const row = recognition.rows.value[index]
-  return row ? `${appBaseURL}${buildPokemonDetailPath('global', row.dex, row.id).replace(/^\//, '')}` : homeUrl
+  // buildPokemonDetailPath は appBaseURL 込みの絶対パスを返す
+  return row ? buildPokemonDetailPath('global', row.dex, row.id) : homeUrl
 }
 
 const stopStream = () => {
@@ -172,31 +179,35 @@ const tick = async () => {
         }))
       tracks = updateTracks(tracks, mapped, cfg.track_iou_threshold)
 
-      // 枠ごとに N フレーム周期で特徴照合（同時1件まで）
-      for (const track of tracks) {
-        if (track.framesSeen % cfg.embed_every_n_frames === 0 && !pendingEmbeds.has(track.id)) {
-          pendingEmbeds.add(track.id)
-          const cropBitmap = await createImageBitmap(video)
-          const trackId = track.id
-          recognition.embed(trackId, cropBitmap, track.box).then((matches) => {
-            pendingEmbeds.delete(trackId)
-            const current = tracks.find((item) => item.id === trackId)
-            if (!current || matches.length === 0) {
-              return
-            }
-            const [top1, top2] = matches
-            if (top1!.score >= cfg.match_threshold) {
-              current.votes.push({ index: top1!.index, score: top1!.score })
-              current.gapWarn = top2 !== undefined && top1!.score - top2.score < cfg.top2_gap_warn
-            }
-            const voted = voteForLabel(current.votes, cfg.vote_window)
-            if (voted) {
-              current.labelIndex = voted.index
-              current.labelScore = voted.score
-            }
-          })
-          break
-        }
+      // 枠ごとに N フレーム周期で特徴照合（同時1件まで）。
+      // 同時作成された枠は framesSeen が揃って同じ周期で対象になるため、
+      // id昇順のローテーションで全枠が順番に照合されるようにする
+      const eligible = tracks.filter((track) => track.framesSeen % cfg.embed_every_n_frames === 0 && !pendingEmbeds.has(track.id))
+      const candidate = eligible.find((track) => track.id > lastEmbedTrackId) ?? eligible[0]
+      if (candidate) {
+        lastEmbedTrackId = candidate.id
+        pendingEmbeds.add(candidate.id)
+        const cropBitmap = await createImageBitmap(video)
+        const trackId = candidate.id
+        recognition.embed(trackId, cropBitmap, candidate.box).then((matches) => {
+          pendingEmbeds.delete(trackId)
+          const current = tracks.find((item) => item.id === trackId)
+          if (!current || matches.length === 0) {
+            return
+          }
+          const [top1, top2] = matches
+          // 閾値未満は index=-1 として投票し、古いラベルが多数決で剥落するようにする
+          const accepted = top1!.score >= cfg.match_threshold
+          current.votes.push(accepted ? { index: top1!.index, score: top1!.score } : { index: -1, score: 0 })
+          if (accepted) {
+            current.gapWarn = top2 !== undefined && top1!.score - top2.score < cfg.top2_gap_warn
+          }
+          const voted = voteForLabel(current.votes, cfg.vote_window)
+          if (voted) {
+            current.labelIndex = voted.index >= 0 ? voted.index : null
+            current.labelScore = voted.index >= 0 ? voted.score : 0
+          }
+        })
       }
     }
   }

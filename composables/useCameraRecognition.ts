@@ -103,6 +103,10 @@ export const useCameraRecognition = () => {
         { type: 'module' }
       )
       worker.onmessage = onMessage
+      worker.onerror = () => {
+        errorMessage.value = '認識ワーカーでエラーが発生しました'
+        status.value = 'error'
+      }
       const numThreads = globalThis.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1
       await new Promise<void>((resolve, reject) => {
         const handler = (event: MessageEvent) => {
@@ -115,6 +119,9 @@ export const useCameraRecognition = () => {
           }
         }
         worker!.addEventListener('message', handler)
+        // ワーカー自体が起動できない場合（スクリプト取得失敗・COEPブロック等）は
+        // message が返らず待ち続けるため、error イベントでも reject する
+        worker!.addEventListener('error', () => reject(new Error('認識ワーカーの起動に失敗しました')), { once: true })
         worker!.postMessage({
           type: 'init',
           urls: {
