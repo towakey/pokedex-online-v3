@@ -47,6 +47,7 @@ export default defineAppConfig({
     search: '/search',
     tagSearch: '/search/tag',
     favorites: '/favorites',
-    contribute: '/contribute'
+    contribute: '/contribute',
+    camera: '/app/camera'
   }
 })

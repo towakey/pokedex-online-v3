@@ -15,7 +15,8 @@ interface HeaderSharePayload {
 const appConfig = useSiteAppConfig()
 const drawerOpen = useState('app-drawer-open', () => false)
 const route = useRoute()
-const { formatPokedexTitle, normalizeRegionSlug } = usePokedex()
+const { formatPokedexTitle, normalizeRegionSlug, getAppPath } = usePokedex()
+const cameraUrl = getAppPath('app/camera')
 const { language, setLanguage, languageOptions, t } = useTranslation()
 const { preference, setTheme, cycleTheme } = useTheme()
 const { ensureLoaded, suggest } = useGlobalSearch()
@@ -240,6 +241,10 @@ const headerSharePayload = computed<HeaderSharePayload>(() => {
         <NuxtLink :to="appConfig.navigation.contribute" class="nav-link nav-link--light">
           {{ t('common.contribute') }}
         </NuxtLink>
+        <!-- /app/camera は COOP/COEP の切替が必要なため再読み込みで開く -->
+        <a :href="cameraUrl" class="nav-link nav-link--light">
+          {{ t('common.camera') }}
+        </a>
       </nav>
 
       <div class="app-bar__actions">

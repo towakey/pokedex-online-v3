@@ -55,3 +55,10 @@ upload-to-server.bat         # 検証合格後のみアップロード（本番�
 - 商品情報は Devin Automation が投稿する。プロンプト原稿は `.devin/automations/pokemon-center-products.md`。シークレット `POKEDEX_PRODUCTS_API_TOKEN` に `.env.production` の `PRODUCTS_API_TOKEN` と同じ値を設定する。
 - 詳細ページは全国図鑑Noを使ってクライアント側で商品APIを fetch するため、商品一覧は静的生成に含まれない。
 - ローカル確認（XAMPP）: `http://localhost/pokedex-online-v3/pokedex/products/products.php?mode=health`
+
+## カメラ認識（/app/camera）
+
+- ブラウザ内推論: `workers/recognition.worker.ts` が onnxruntime-web で YOLO-World（検出）+ DINOv2（特徴量）を実行し、`public/models/embeddings.v1.bin` のベクトルDBと照合してポケモンを特定する。UI は `pages/app/camera.vue` + `composables/useCameraRecognition.ts` + `utils/cameraTracker.ts`。
+- モデル等は `public/models/`（`generate`/`dev` 時はそのまま配信、SWがcache-first）。ONNXランタイムのwasmは `scripts/copy-ort.ts` が `public/ort/` にコピー（dev/generate の先頭で実行）。
+- `public/app/camera/.htaccess` で COOP/COEP をこのパスだけに適用（SharedArrayBuffer・wasmスレッド用）。他ページには影響しないよう、カメラへの遷移・カメラからの遷移は `<a href>` の再読み込みにしている（NuxtLinkではない）。
+- モデル・ベクトルDBの作成手順と設定は `ml/README.md` / `ml/setting.json`。対象は初代151匹（`index.max_dex`）。

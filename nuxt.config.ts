@@ -40,7 +40,7 @@ const createPrerenderRoutes = () => {
     }
   }
 
-  const routes = new Set<string>(['/', '/gallery', '/search', '/search/tag', '/favorites', '/pokedex', '/sitemap.xml', '/robots.txt'])
+  const routes = new Set<string>(['/', '/gallery', '/search', '/search/tag', '/favorites', '/pokedex', '/app/camera', '/sitemap.xml', '/robots.txt'])
   const sampleLimit = prerenderSample !== undefined && Number.isFinite(prerenderSample) && prerenderSample > 0
     ? prerenderSample
     : undefined
@@ -131,6 +131,7 @@ export default defineNuxtConfig({
     '/search/tag': { prerender: true },
     '/favorites': { prerender: true },
     '/pokedex': { prerender: true },
-    '/pokedex/**': { prerender: true }
+    '/pokedex/**': { prerender: true },
+    '/app/camera': { prerender: true }
   }
 })

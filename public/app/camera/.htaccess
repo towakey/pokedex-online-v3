@@ -1,0 +1,6 @@
+# /app/camera だけ SharedArrayBuffer（onnxruntime-web マルチスレッド）を有効化する。
+# サイト全体に付けると AdSense が動かなくなるため、このディレクトリ限定。
+<IfModule mod_headers.c>
+  Header always set Cross-Origin-Opener-Policy "same-origin"
+  Header always set Cross-Origin-Embedder-Policy "require-corp"
+</IfModule>

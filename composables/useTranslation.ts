@@ -1749,6 +1749,62 @@ const UI_LABELS: Record<string, LanguageMap> = {
     jpn: "編集協力",
     eng: "Contribute"
   },
+  'common.camera': {
+    jpn: "カメラ",
+    eng: "Camera"
+  },
+  'camera.title': {
+    jpn: "カメラ認識",
+    eng: "Camera Recognition"
+  },
+  'camera.description': {
+    jpn: "カメラに映ったポケモンをリアルタイムで認識し、図鑑ページへ移動できます。",
+    eng: "Recognize Pokémon in your camera in real time and jump to their Pokédex pages."
+  },
+  'camera.loadingModels': {
+    jpn: "認識モデルを読み込んでいます…",
+    eng: "Loading recognition models…"
+  },
+  'camera.switchCamera': {
+    jpn: "カメラ切替",
+    eng: "Switch camera"
+  },
+  'camera.lowSpeedMode': {
+    jpn: "低速モード",
+    eng: "Low-speed mode"
+  },
+  'camera.debugLabel': {
+    jpn: "デバッグ表示",
+    eng: "Debug info"
+  },
+  'camera.licenseNote': {
+    jpn: "このページのコードは AGPL-3.0 で公開中",
+    eng: "This page's code is published under AGPL-3.0"
+  },
+  'camera.viewSource': {
+    jpn: "ソースコード",
+    eng: "Source code"
+  },
+  'camera.error.unsupported': {
+    jpn: "このブラウザはカメラに対応していません。",
+    eng: "This browser does not support camera access."
+  },
+  'camera.error.insecure': {
+    jpn: "カメラの利用にはHTTPS接続が必要です。",
+    eng: "Camera access requires an HTTPS connection."
+  },
+  'camera.error.denied': {
+    jpn: "カメラへのアクセスが拒否されました。ブラウザの設定でカメラを許可してください。",
+    eng: "Camera access was denied. Allow camera access in your browser settings."
+  },
+  'camera.error.other': {
+    jpn: "カメラを起動できませんでした。",
+    eng: "Could not start the camera."
+  },
+  'camera.error.model': {
+    jpn: "認識モデルの読み込みに失敗しました。",
+    eng: "Failed to load the recognition models."
+  },
   'contribute.eyebrow': {
     jpn: "データソース",
     eng: "Data Source"

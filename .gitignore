@@ -8,6 +8,8 @@ generated-data/
 /public/images/pokemon/
 /public/images/pokedex-version/
 /public/images/og/
+/public/ort/
+/ml/data/
 # Twitter Bot runtime data (DB/logs/lock)
 twitter-bot/data/
 
@@ -16,3 +18,4 @@ twitter-bot/data/
 .env.*
 !.env.example
 !.env.*.example
+__pycache__/
