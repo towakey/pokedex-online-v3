@@ -222,7 +222,8 @@ const onPhotoFile = async (event: Event) => {
   try {
     const cfg = recognition.config.value
     const detectBitmap = await createImageBitmap(photoBitmap)
-    const boxes = (await recognition.detect(detectBitmap)) ?? []
+    // カメラ側の検出が残っていると null が返るため、画像モードは完了を待つ
+    const boxes = (await recognition.detect(detectBitmap, true)) ?? []
     const mapped = letterboxToSource(boxes, photoBitmap.width, photoBitmap.height, cfg.display_threshold)
     let trackId = 1
     for (const box of mapped) {

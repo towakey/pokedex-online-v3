@@ -149,18 +149,25 @@ export const useCameraRecognition = () => {
     }
   }
 
-  // 同時に1回だけ検出を実行。実行中は前回結果を返す
-  const detect = async (bitmap: ImageBitmap): Promise<WorkerBox[] | null> => {
+  let inflightPromise: Promise<unknown> | null = null
+
+  // 同時に1回だけ検出を実行。実行中は前回結果を返す。
+  // wait=true の呼び出しは実行中の検出が終わるまで待つ（画像モードなど結果を落とせない用途向け）
+  const detect = async (bitmap: ImageBitmap, wait = false): Promise<WorkerBox[] | null> => {
+    while (wait && inflightDetect) {
+      await inflightPromise
+    }
     if (!worker || inflightDetect) {
       bitmap.close()
       return null
     }
     inflightDetect = true
     const seq = ++detectSeq
-    return await new Promise<WorkerBox[]>((resolve) => {
+    inflightPromise = new Promise<WorkerBox[]>((resolve) => {
       detectWaiters.set(seq, resolve)
       worker!.postMessage({ type: 'detect', seq, bitmap }, [bitmap])
     })
+    return await inflightPromise
   }
 
   const embed = async (trackId: number, bitmap: ImageBitmap, box: WorkerBox): Promise<WorkerMatch[]> => {
