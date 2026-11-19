@@ -77,6 +77,12 @@ export const useCameraRecognition = () => {
     else if (message.type === 'error') {
       errorMessage.value = String(message.message)
       status.value = 'error'
+      // 待機中の呼び出しを解放しないとUIが処理中のまま固まる
+      inflightDetect = false
+      detectWaiters.forEach(resolve => resolve([]))
+      detectWaiters.clear()
+      embedWaiters.forEach(resolve => resolve([]))
+      embedWaiters.clear()
     }
   }
 

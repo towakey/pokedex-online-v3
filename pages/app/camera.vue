@@ -26,8 +26,12 @@ const facingMode = ref<'environment' | 'user'>('environment')
 const debug = ref(false)
 const fps = ref(0)
 const running = ref(false)
+const photoMode = ref(false)
+const photoProcessing = ref(false)
+const fileInput = ref<HTMLInputElement | null>(null)
 
 const isLoading = computed(() => recognition.status.value === 'loading')
+const modelReady = computed(() => recognition.status.value === 'ready')
 const modelError = computed(() => recognition.status.value === 'error' ? recognition.errorMessage.value : '')
 
 let stream: MediaStream | null = null
@@ -39,6 +43,7 @@ let lastStatsAt = 0
 let frameCount = 0
 let pendingEmbeds = new Set<number>()
 let lastEmbedTrackId = 0
+let photoBitmap: ImageBitmap | null = null
 
 const appBaseURL = (useRuntimeConfig().public.appBaseURL || '/').replace(/\/$/, '')
 const isolated = import.meta.client ? globalThis.crossOriginIsolated : true
@@ -90,32 +95,10 @@ const switchCamera = async () => {
   await startCamera(facingMode.value === 'environment' ? 'user' : 'environment')
 }
 
-const drawOverlay = (canvas: HTMLCanvasElement, video: HTMLVideoElement) => {
-  const ctx = canvas.getContext('2d')
-  if (!ctx) {
-    return
-  }
-  const cw = canvas.width
-  const ch = canvas.height
-  ctx.clearRect(0, 0, cw, ch)
+interface ViewBox { x: number, y: number, w: number, h: number }
+
+const drawTrackLabels = (ctx: CanvasRenderingContext2D, cw: number, toView: (box: ViewBox) => ViewBox) => {
   hitAreas = []
-
-  const vw = video.videoWidth
-  const vh = video.videoHeight
-  if (!vw || !vh) {
-    return
-  }
-  // object-fit: cover と同じ変換で枠を表示領域に写像する
-  const scale = Math.max(cw / vw, ch / vh)
-  const offsetX = (cw - vw * scale) / 2
-  const offsetY = (ch - vh * scale) / 2
-  const toView = (box: { x: number, y: number, w: number, h: number }) => ({
-    x: box.x * scale + offsetX,
-    y: box.y * scale + offsetY,
-    w: box.w * scale,
-    h: box.h * scale
-  })
-
   const fontSize = Math.max(13, Math.round(cw / 48))
   ctx.font = `600 ${fontSize}px "Segoe UI", sans-serif`
   ctx.textBaseline = 'middle'
@@ -143,6 +126,138 @@ const drawOverlay = (canvas: HTMLCanvasElement, video: HTMLVideoElement) => {
     if (named) {
       hitAreas.push({ x: box.x, y: Math.min(labelY, box.y), w: Math.max(box.w, labelWidth), h: box.h + labelHeight, url: detailUrl(track.labelIndex!) })
     }
+  }
+}
+
+const drawOverlay = (canvas: HTMLCanvasElement, video: HTMLVideoElement) => {
+  const ctx = canvas.getContext('2d')
+  if (!ctx) {
+    return
+  }
+  const cw = canvas.width
+  const ch = canvas.height
+  ctx.clearRect(0, 0, cw, ch)
+
+  const vw = video.videoWidth
+  const vh = video.videoHeight
+  if (!vw || !vh) {
+    hitAreas = []
+    return
+  }
+  // object-fit: cover と同じ変換で枠を表示領域に写像する
+  const scale = Math.max(cw / vw, ch / vh)
+  const offsetX = (cw - vw * scale) / 2
+  const offsetY = (ch - vh * scale) / 2
+  drawTrackLabels(ctx, cw, (box) => ({
+    x: box.x * scale + offsetX,
+    y: box.y * scale + offsetY,
+    w: box.w * scale,
+    h: box.h * scale
+  }))
+}
+
+// 画像モード: 画像を contain で描いてから枠を重ねる
+const drawPhoto = () => {
+  const canvas = canvasEl.value
+  const ctx = canvas?.getContext('2d')
+  if (!canvas || !ctx || !photoBitmap) {
+    return
+  }
+  const cw = canvas.clientWidth
+  const ch = canvas.clientHeight
+  canvas.width = cw
+  canvas.height = ch
+  const iw = photoBitmap.width
+  const ih = photoBitmap.height
+  const scale = Math.min(cw / iw, ch / ih)
+  const dx = (cw - iw * scale) / 2
+  const dy = (ch - ih * scale) / 2
+  ctx.fillStyle = '#000'
+  ctx.fillRect(0, 0, cw, ch)
+  ctx.drawImage(photoBitmap, dx, dy, iw * scale, ih * scale)
+  drawTrackLabels(ctx, cw, (box) => ({
+    x: box.x * scale + dx,
+    y: box.y * scale + dy,
+    w: box.w * scale,
+    h: box.h * scale
+  }))
+}
+
+const letterboxToSource = (boxes: Array<{ x: number, y: number, w: number, h: number, score: number }>, srcW: number, srcH: number, threshold: number) => {
+  const size = 640
+  const scale = Math.min(size / srcW, size / srcH)
+  const padX = (size - srcW * scale) / 2
+  const padY = (size - srcH * scale) / 2
+  return boxes
+    .filter((box) => box.score >= threshold)
+    .map((box) => ({
+      x: (box.x - padX) / scale,
+      y: (box.y - padY) / scale,
+      w: box.w / scale,
+      h: box.h / scale,
+      score: box.score
+    }))
+}
+
+const openPhotoPicker = () => {
+  fileInput.value?.click()
+}
+
+const onPhotoFile = async (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (!file || recognition.status.value !== 'ready') {
+    return
+  }
+  photoBitmap?.close()
+  photoBitmap = await createImageBitmap(file)
+  photoMode.value = true
+  running.value = false
+  cancelAnimationFrame(rafId)
+  stopStream()
+  tracks = []
+  hitAreas = []
+  photoProcessing.value = true
+  try {
+    const cfg = recognition.config.value
+    const detectBitmap = await createImageBitmap(photoBitmap)
+    const boxes = (await recognition.detect(detectBitmap)) ?? []
+    const mapped = letterboxToSource(boxes, photoBitmap.width, photoBitmap.height, cfg.display_threshold)
+    let trackId = 1
+    for (const box of mapped) {
+      const cropBitmap = await createImageBitmap(photoBitmap)
+      const matches = await recognition.embed(trackId, cropBitmap, { ...box, cls: 0 })
+      const [top1, top2] = matches
+      const accepted = top1 !== undefined && top1.score >= cfg.match_threshold
+      tracks.push({
+        id: trackId++,
+        box,
+        missed: 0,
+        framesSeen: 1,
+        votes: accepted ? [{ index: top1.index, score: top1.score }] : [],
+        labelIndex: accepted ? top1.index : null,
+        labelScore: accepted ? top1.score : 0,
+        gapWarn: accepted && top2 !== undefined && top1.score - top2.score < cfg.top2_gap_warn
+      })
+    }
+  }
+  finally {
+    photoProcessing.value = false
+  }
+  drawPhoto()
+}
+
+const backToCamera = async () => {
+  photoMode.value = false
+  photoBitmap?.close()
+  photoBitmap = null
+  tracks = []
+  hitAreas = []
+  await startCamera(facingMode.value)
+  if (stream) {
+    running.value = true
+    rafId = requestAnimationFrame(tick)
   }
 }
 
@@ -268,16 +383,15 @@ useSiteSeo({
 onMounted(async () => {
   if (!window.isSecureContext) {
     cameraError.value = 'insecure'
-    return
   }
-  if (!navigator.mediaDevices?.getUserMedia) {
+  else if (!navigator.mediaDevices?.getUserMedia) {
     cameraError.value = 'unsupported'
-    return
   }
   document.addEventListener('visibilitychange', onVisibilityChange)
+  // カメラが使えない環境でも画像アップロード認識は動かせるよう、モデルは常に読み込む
   await recognition.init()
   debug.value = recognition.config.value.debug_default
-  if (recognition.status.value !== 'ready') {
+  if (recognition.status.value !== 'ready' || cameraError.value) {
     return
   }
   await startCamera('environment')
@@ -304,13 +418,20 @@ onBeforeUnmount(() => {
     <header class="camera-page__bar">
       <a :href="homeUrl" class="camera-page__back">← {{ t('common.home') }}</a>
       <h1 class="camera-page__title">{{ t('camera.title') }}</h1>
-      <button v-if="!cameraError" type="button" class="camera-page__button" @click="switchCamera">
+      <button v-if="photoMode" type="button" class="camera-page__button" @click="backToCamera">
+        {{ t('camera.backToCamera') }}
+      </button>
+      <button v-if="modelReady" type="button" class="camera-page__button" @click="openPhotoPicker">
+        {{ t('camera.uploadImage') }}
+      </button>
+      <button v-if="!cameraError && !photoMode" type="button" class="camera-page__button" @click="switchCamera">
         {{ t('camera.switchCamera') }}
       </button>
+      <input ref="fileInput" type="file" accept="image/*" class="camera-page__file" @change="onPhotoFile">
     </header>
 
     <div class="camera-page__stage">
-      <video ref="videoEl" class="camera-page__video" playsinline muted autoplay />
+      <video v-show="!photoMode" ref="videoEl" class="camera-page__video" playsinline muted autoplay />
       <canvas ref="canvasEl" class="camera-page__overlay" @click="onCanvasClick" />
 
       <div v-if="isLoading" class="camera-page__status">
@@ -320,7 +441,11 @@ onBeforeUnmount(() => {
         </div>
       </div>
 
-      <div v-else-if="modelError || cameraError" class="camera-page__status">
+      <div v-else-if="photoProcessing" class="camera-page__status">
+        <p>{{ t('camera.recognizing') }}</p>
+      </div>
+
+      <div v-else-if="(modelError || cameraError) && !photoMode" class="camera-page__status">
         <p>{{ cameraError ? t(`camera.error.${cameraError}`) : t('camera.error.model') }}</p>
         <p v-if="modelError" class="camera-page__status-detail">{{ modelError }}</p>
       </div>
@@ -480,6 +605,10 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 6px;
+}
+
+.camera-page__file {
+  display: none;
 }
 
 .camera-page__license {

@@ -68,9 +68,6 @@ const init = async (message: InitMessage) => {
     embedder = await createSession(message.urls.embedder, ['wasm'])
   }
 
-  const outputMeta = detector.outputMetadata[detector.outputNames[0]!]
-  numClasses = (outputMeta?.dimensions?.[1] ?? 0) - 4
-
   post({ type: 'progress', stage: 'embeddings', value: 0.6 })
   const [indexResponse, binResponse] = await Promise.all([
     fetch(message.urls.embeddingsJson),
@@ -135,7 +132,9 @@ const detect = async (message: DetectMessage) => {
   const output = results[detector!.outputNames[0]!]!
   const raw = output.data as Float32Array
   const anchors = output.dims[2]!
-
+  // outputMetadata.dimensions は onnxruntime-web では欠けることがあるため、
+  // クラス数は実出力の dims から毎回求める（[1, 4+numClasses, anchors] 形式）
+  numClasses = (output.dims[1] ?? 4) - 4
   const candidates: Array<{ x: number, y: number, w: number, h: number, score: number, cls: number }> = []
   for (let i = 0; i < anchors; i++) {
     let bestScore = 0

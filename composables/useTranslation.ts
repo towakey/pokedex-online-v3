@@ -1769,6 +1769,18 @@ const UI_LABELS: Record<string, LanguageMap> = {
     jpn: "カメラ切替",
     eng: "Switch camera"
   },
+  'camera.uploadImage': {
+    jpn: "画像で認識",
+    eng: "Recognize from image"
+  },
+  'camera.backToCamera': {
+    jpn: "カメラに戻る",
+    eng: "Back to camera"
+  },
+  'camera.recognizing': {
+    jpn: "画像を認識しています…",
+    eng: "Recognizing the image…"
+  },
   'camera.lowSpeedMode': {
     jpn: "低速モード",
     eng: "Low-speed mode"
