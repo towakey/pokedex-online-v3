@@ -172,6 +172,17 @@ const UI_LABELS: Record<string, LanguageMap> = {
     chs: "标签搜索",
     cht: "標籤搜尋"
   },
+  'common.pokemonGuess': {
+    jpn: "ポケモン当て",
+    eng: "Pokémon Guess",
+    fra: "Devine le Pokémon",
+    ita: "Indovina il Pokémon",
+    ger: "Pokémon erraten",
+    spa: "Adivina el Pokémon",
+    kor: "포켓몬 맞추기",
+    chs: "猜宝可梦",
+    cht: "猜寶可夢"
+  },
   'common.settings': {
     jpn: "設定",
     eng: "Settings",

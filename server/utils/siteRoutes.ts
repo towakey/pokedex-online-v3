@@ -48,7 +48,7 @@ export const buildCanonicalRouteEntries = (): CanonicalRouteEntry[] => {
   const routeMap = new Map<string, string | undefined>()
   const siteLastmod = maxDate(...Object.values(manifest).map((entry) => entry.lastmod))
 
-  for (const staticRoute of ['/', '/pokedex', '/search', '/search/tag', '/gallery', '/app/camera']) {
+  for (const staticRoute of ['/', '/pokedex', '/search', '/search/tag', '/gallery', '/app/pokemon-guess', '/app/camera']) {
     routeMap.set(staticRoute, siteLastmod)
   }
 

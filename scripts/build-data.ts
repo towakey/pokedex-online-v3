@@ -128,6 +128,22 @@ interface SearchIndexRecord extends IndexRecord {
   forms?: Record<string, string>
 }
 
+interface GuessRecord {
+  id: string
+  dex: number
+  name: string
+  types: string[]
+  generation: number
+  height?: number
+  weight?: number
+  statTotal?: number
+  canEvolve: boolean
+  isEvolved: boolean
+  hasVariants: boolean
+  eggGroups?: string[]
+  regions: string[]
+}
+
 interface RegionEntry {
   dex: number
   pokemon_id: string
@@ -1258,6 +1274,7 @@ const regionMap = new Map<string, RegionEntry[]>()
 const regionsWithMoves = new Set<string>()
 const primaryGlobalIdByDex = new Map<number, string>()
 const globalEntries: RegionEntry[] = []
+const eggGroupsByPokemonId = new Map<string, string[]>()
 
 for (const [globalNo, formsValue] of Object.entries(globalPokedex)) {
   const dexNumber = parsePokemonId(globalNo)
@@ -1276,6 +1293,14 @@ for (const [globalNo, formsValue] of Object.entries(globalPokedex)) {
   for (const [pokemonId, pokemonEntry] of Object.entries(formMap)) {
     const globalDescriptions = createGlobalDescriptionEntries(globalDescriptionMap.get(pokemonId), versionDisplayMap, versionDescriptionLookup, versionRegionLinkLookup, pokemonId)
     const baseRecord = createPokemonBaseRecord(pokemonId, dexNumber, { [pokemonId]: pokemonEntry })
+
+    const eggValue = pokemonEntry?.egg
+    if (Array.isArray(eggValue)) {
+      const eggGroups = uniqueStrings(eggValue.map(toStringValue))
+      if (eggGroups.length > 0) {
+        eggGroupsByPokemonId.set(pokemonId, eggGroups)
+      }
+    }
 
     pokemonMap.set(pokemonId, {
       ...baseRecord,
@@ -1785,6 +1810,86 @@ for (const pokemon of pokemonMap.values()) {
 }
 
 const pokemonRecords = [...pokemonMap.values()].sort((left, right) => left.dex - right.dex || left.id.localeCompare(right.id))
+
+const GENERATION_DEX_LIMITS = [151, 251, 386, 493, 649, 721, 809, 905]
+const resolveGeneration = (dex: number) => GENERATION_DEX_LIMITS.findIndex((limit) => dex <= limit) + 1 || GENERATION_DEX_LIMITS.length + 1
+
+const evolvedDexes = new Set<number>()
+const canEvolveDexes = new Set<number>()
+for (const pokemon of pokemonRecords) {
+  for (const evolution of pokemon.evolutions ?? []) {
+    const targetNationalDex = pokemonMap.get(evolution.pokemonId)?.dex ?? parsePokemonId(evolution.pokemonId)
+    if (targetNationalDex) {
+      evolvedDexes.add(targetNationalDex)
+    }
+    canEvolveDexes.add(pokemon.dex)
+  }
+}
+
+const regionsByDex = new Map<number, Set<string>>()
+for (const [slug, entries] of regionMap.entries()) {
+  if (slug === 'global') {
+    continue
+  }
+  for (const entry of entries) {
+    const set = regionsByDex.get(entry.national_dex) ?? new Set<string>()
+    set.add(slug)
+    regionsByDex.set(entry.national_dex, set)
+  }
+}
+
+const sumStats = (stats: PokemonRecord['stats']): number | undefined => {
+  const values = Object.values(stats ?? {}).filter((value): value is number => typeof value === 'number')
+  return values.length > 0 ? values.reduce((total, value) => total + value, 0) : undefined
+}
+
+const entryCountByDex = new Map<number, number>()
+const guessFallbackByDex = new Map<number, { types?: string[]; height?: number; weight?: number; statTotal?: number; eggGroups?: string[] }>()
+for (const pokemon of pokemonRecords) {
+  entryCountByDex.set(pokemon.dex, (entryCountByDex.get(pokemon.dex) ?? 0) + 1)
+
+  const fallback = guessFallbackByDex.get(pokemon.dex) ?? {}
+  if (pokemon.types.length > 0 && !fallback.types) {
+    fallback.types = pokemon.types
+  }
+  if (pokemon.height !== undefined && fallback.height === undefined) {
+    fallback.height = pokemon.height
+  }
+  if (pokemon.weight !== undefined && fallback.weight === undefined) {
+    fallback.weight = pokemon.weight
+  }
+  const statTotal = sumStats(pokemon.stats)
+  if (statTotal !== undefined && fallback.statTotal === undefined) {
+    fallback.statTotal = statTotal
+  }
+  const eggGroups = eggGroupsByPokemonId.get(pokemon.id)
+  if (eggGroups && !fallback.eggGroups) {
+    fallback.eggGroups = eggGroups
+  }
+  guessFallbackByDex.set(pokemon.dex, fallback)
+}
+
+// 地方図鑑に収録されない性別・フォルム違い等の別エントリは、同じ全国図鑑Noのデータを引き継ぐ
+const guessRecords: GuessRecord[] = pokemonRecords.map((pokemon) => {
+  const fallback = guessFallbackByDex.get(pokemon.dex) ?? {}
+
+  return {
+    id: pokemon.id,
+    dex: pokemon.dex,
+    name: pokemon.name,
+    types: pokemon.types.length > 0 ? pokemon.types : (fallback.types ?? []),
+    generation: resolveGeneration(pokemon.dex),
+    height: pokemon.height ?? fallback.height,
+    weight: pokemon.weight ?? fallback.weight,
+    statTotal: sumStats(pokemon.stats) ?? fallback.statTotal,
+    canEvolve: canEvolveDexes.has(pokemon.dex),
+    isEvolved: evolvedDexes.has(pokemon.dex),
+    hasVariants: (entryCountByDex.get(pokemon.dex) ?? 0) > 1,
+    eggGroups: eggGroupsByPokemonId.get(pokemon.id) ?? fallback.eggGroups,
+    regions: [...(regionsByDex.get(pokemon.dex) ?? [])]
+  }
+})
+
 const indexRecords: IndexRecord[] = pokemonRecords.map((pokemon) => ({
   id: pokemon.id,
   dex: pokemon.dex,
@@ -1835,6 +1940,7 @@ for (const [slug, entries] of regionMap.entries()) {
 
 writeJson(resolve(outputDir, 'index.json'), indexRecords as unknown as JsonValue)
 writeJson(resolve(outputDir, 'search-index.json'), searchIndexRecords as unknown as JsonValue)
+writeJson(resolve(outputDir, 'guess.json'), guessRecords as unknown as JsonValue)
 writeJson(resolve(outputDir, 'regions.json'), regionMeta as unknown as JsonValue)
 
 writeFileSync(lastmodManifestPath(), JSON.stringify(nextLastmodManifest, null, 2), 'utf-8')

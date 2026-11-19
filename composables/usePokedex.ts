@@ -16,6 +16,22 @@ export interface SearchIndexItem extends PokemonIndexItem {
   forms?: LocalizedTextMap
 }
 
+export interface GuessEntry {
+  id: string
+  dex: number
+  name: string
+  types: string[]
+  generation: number
+  height?: number
+  weight?: number
+  statTotal?: number
+  canEvolve: boolean
+  isEvolved: boolean
+  hasVariants: boolean
+  eggGroups?: string[]
+  regions: string[]
+}
+
 export interface PokemonDetail extends SearchIndexItem {
   height?: number
   weight?: number
@@ -225,6 +241,7 @@ export const usePokedex = () => {
   const { getRegionLabel, language, t } = useTranslation()
 
   const loadIndex = () => loadGeneratedData<PokemonIndexItem[]>('index.json')
+  const loadGuess = () => loadGeneratedData<GuessEntry[]>('guess.json')
   const loadSearchIndex = () => loadGeneratedData<SearchIndexItem[]>('search-index.json')
   const loadPokemon = (id: number | string) => loadGeneratedData<PokemonDetail>(`pokemon/${formatPokemonRouteId(id)}.json`)
   const loadRegionMoves = (region: string) => loadGeneratedData<RegionMovesData>(`waza/${normalizeRegionSlug(region)}.json`)
@@ -282,6 +299,7 @@ export const usePokedex = () => {
 
   return {
     loadIndex,
+    loadGuess,
     loadSearchIndex,
     loadPokemon,
     loadRegionMoves,

@@ -238,6 +238,9 @@ const headerSharePayload = computed<HeaderSharePayload>(() => {
         <NuxtLink :to="appConfig.navigation.favorites" class="nav-link nav-link--light">
           {{ t('common.favorites') }}
         </NuxtLink>
+        <NuxtLink :to="appConfig.navigation.pokemonGuess" class="nav-link nav-link--light">
+          {{ t('common.pokemonGuess') }}
+        </NuxtLink>
         <NuxtLink :to="appConfig.navigation.contribute" class="nav-link nav-link--light">
           {{ t('common.contribute') }}
         </NuxtLink>
