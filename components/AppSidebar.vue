@@ -35,6 +35,10 @@ const primaryItems = computed(() => [
     to: appConfig.navigation.favorites
   },
   {
+    label: t('common.pokemonGuess'),
+    to: appConfig.navigation.pokemonGuess
+  },
+  {
     label: t('common.contribute'),
     to: appConfig.navigation.contribute
   }
