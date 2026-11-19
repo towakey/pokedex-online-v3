@@ -1,0 +1,10 @@
+{
+  "match_threshold": 0.65,
+  "display_threshold": 0.15,
+  "top2_gap_warn": 0.05,
+  "detect_interval_ms": 100,
+  "embed_every_n_frames": 5,
+  "track_iou_threshold": 0.35,
+  "vote_window": 5,
+  "debug_default": false
+}

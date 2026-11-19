@@ -28,6 +28,16 @@ if exist "public\.htaccess" (
   )
 )
 
+if exist "public\app\camera\.htaccess" (
+  echo Copying app\camera\.htaccess...
+  copy /Y "public\app\camera\.htaccess" ".output\public\app\camera\.htaccess" >nul
+  if errorlevel 1 (
+    echo [ERROR] app\camera\.htaccess copy failed.
+    popd
+    exit /b 1
+  )
+)
+
 echo Syncing pokedex API into .output\public...
 call sync-pokedex-api.bat
 if errorlevel 1 (

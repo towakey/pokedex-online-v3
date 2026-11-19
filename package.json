@@ -3,13 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "nuxt dev",
+    "dev": "tsx scripts/copy-ort.ts && nuxt dev",
     "clean": "tsx scripts/clean.ts",
     "build": "nuxt build",
-    "generate": "tsx scripts/clean.ts && nuxt generate",
+    "generate": "tsx scripts/clean.ts && tsx scripts/copy-ort.ts && nuxt generate",
     "preview": "nuxt preview",
     "setup": "tsx scripts/setup.ts",
     "build:data": "tsx scripts/build-data.ts",
+    "copy:ort": "tsx scripts/copy-ort.ts",
     "build:og-cards": "tsx scripts/build-og-cards.ts",
     "validate:production-config": "tsx scripts/validate-production.ts config",
     "validate:production-output": "tsx scripts/validate-production.ts output",
@@ -28,5 +29,8 @@
   },
   "engines": {
     "node": ">=18.20.0"
+  },
+  "dependencies": {
+    "onnxruntime-web": "^1.31.1"
   }
 }

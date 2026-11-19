@@ -1,9 +1,10 @@
 // Pokédex-Online Service Worker
 // キャッシュ戦略やURL構成を変えた場合は CACHE_VERSION を上げる（古いキャッシュが削除される）
 
-const CACHE_VERSION = 'v2'
+const CACHE_VERSION = 'v3'
 const PRECACHE_NAME = `pokedex-precache-${CACHE_VERSION}`
 const RUNTIME_NAME = `pokedex-runtime-${CACHE_VERSION}`
+const MODEL_NAME = `pokedex-model-${CACHE_VERSION}`
 const RUNTIME_MAX_ENTRIES = 300
 
 const PRECACHE_URLS = [
@@ -21,6 +22,12 @@ const RUNTIME_CACHE_PATTERNS = [
   /^\/icons\//,
   /^\/_nuxt\//,
   /\.(?:png|jpe?g|webp|svg|gif|ico|woff2?|css|js)$/
+]
+
+// カメラ認識のモデル・ONNXランタイム: cache-first（バージョン付きファイル名で更新管理）
+const MODEL_CACHE_PATTERNS = [
+  /^\/models\//,
+  /^\/ort\//
 ]
 
 const NETWORK_ONLY_PATTERNS = [
@@ -79,7 +86,7 @@ self.addEventListener('activate', (event) => {
     caches.keys()
       .then((names) => Promise.all(
         names
-          .filter((name) => name.startsWith('pokedex-') && ![PRECACHE_NAME, RUNTIME_NAME].includes(name))
+          .filter((name) => name.startsWith('pokedex-') && ![PRECACHE_NAME, RUNTIME_NAME, MODEL_NAME].includes(name))
           .map((name) => caches.delete(name))
       ))
       .then(() => self.clients.claim())
@@ -106,6 +113,21 @@ self.addEventListener('fetch', (event) => {
           || (await caches.match('/'))
           || offlineResponse()
       }
+    })())
+    return
+  }
+
+  // モデル・WASM: cache-first（大きいため再ダウンロードさせない）
+  if (MODEL_CACHE_PATTERNS.some((pattern) => pattern.test(url.pathname))) {
+    event.respondWith((async () => {
+      const cached = await caches.match(request)
+      if (cached) return cached
+      const response = await fetch(request)
+      if (response.ok) {
+        const cache = await caches.open(MODEL_NAME)
+        event.waitUntil(cache.put(request, response.clone()))
+      }
+      return response
     })())
     return
   }

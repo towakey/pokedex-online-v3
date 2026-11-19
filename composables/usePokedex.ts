@@ -314,6 +314,7 @@ export const usePokedex = () => {
     formatMeters,
     formatKilograms,
     buildPokemonDetailPath,
-    getPokemonImagePath
+    getPokemonImagePath,
+    getAppPath
   }
 }

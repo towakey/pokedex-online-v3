@@ -48,6 +48,7 @@ export default defineAppConfig({
     tagSearch: '/search/tag',
     favorites: '/favorites',
     pokemonGuess: '/app/pokemon-guess',
-    contribute: '/contribute'
+    contribute: '/contribute',
+    camera: '/app/camera'
   }
 })

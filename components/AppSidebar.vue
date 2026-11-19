@@ -6,7 +6,7 @@ import type { RegionMeta } from '~/composables/usePokedex'
 
 const appConfig = useSiteAppConfig()
 const drawerOpen = useState('app-drawer-open', () => false)
-const { loadRegions } = usePokedex()
+const { loadRegions, getAppPath } = usePokedex()
 const { t, getRegionLabel } = useTranslation()
 
 const primaryItems = computed(() => [
@@ -43,6 +43,9 @@ const primaryItems = computed(() => [
     to: appConfig.navigation.contribute
   }
 ])
+
+// /app/camera は COOP/COEP の切替が必要なため再読み込みで開く
+const cameraUrl = getAppPath('app/camera')
 
 const { data } = await useAsyncData<RegionMeta[]>('app-sidebar-regions', async () => {
   return await loadRegions().catch(() => [] as RegionMeta[])
@@ -95,6 +98,9 @@ const closeDrawer = () => {
           >
             <span>{{ item.label }}</span>
           </NuxtLink>
+          <a :href="cameraUrl" class="drawer-link">
+            <span>{{ t('common.camera') }}</span>
+          </a>
         </div>
       </section>
 

@@ -1,0 +1,48 @@
+{
+  "detector": {
+    "model": "yolov8s-worldv2.pt",
+    "prompts": [
+      "pokemon",
+      "plush toy",
+      "figurine",
+      "character",
+      "monster",
+      "card",
+      "anime"
+    ],
+    "image_size": 640,
+    "conf_threshold": 0.1,
+    "iou_threshold": 0.45,
+    "max_det": 20,
+    "quantize_int8": true,
+    "output": "public/models/detector.v1.onnx"
+  },
+  "embedder": {
+    "model": "facebook/dinov2-small",
+    "image_size": 224,
+    "quantize_int8": true,
+    "output": "public/models/embedder.v1.onnx"
+  },
+  "index": {
+    "images_dir": "ml/data/images",
+    "index_json": "generated-data/index.json",
+    "pokemon_dir": "generated-data/pokemon",
+    "max_dex": 151,
+    "output_bin": "public/models/embeddings.v1.bin",
+    "output_json": "public/models/embeddings.v1.json"
+  },
+  "web_config": {
+    "output": "public/models/config.json",
+    "match_threshold": 0.65,
+    "display_threshold": 0.15,
+    "top2_gap_warn": 0.05,
+    "detect_interval_ms": 100,
+    "embed_every_n_frames": 5,
+    "track_iou_threshold": 0.35,
+    "vote_window": 5,
+    "debug_default": false
+  },
+  "eval": {
+    "images_dir": "ml/data/eval"
+  }
+}

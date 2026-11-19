@@ -14,3 +14,10 @@
   RewriteRule ^pokedex/national$ pokedex/global [R=301,L]
   RewriteRule ^pokedex/national/(.*)$ pokedex/global/$1 [R=301,L]
 </IfModule>
+
+# カメラ認識 (/app/camera) 用のモデル・WASM配信
+<IfModule mod_mime.c>
+  AddType application/wasm .wasm
+  AddType application/octet-stream .onnx
+  AddType application/octet-stream .bin
+</IfModule>
